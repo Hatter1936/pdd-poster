@@ -1,6 +1,9 @@
 import asyncio
 import traceback
 import os
+import json
+import base64
+import requests
 from pyrogram import Client
 from pdd_parser import PDDParser
 
@@ -24,6 +27,46 @@ app = Client(
     session_string=SESSION_STRING
 )
 parser = PDDParser('progress.json')
+
+
+def save_progress_to_github():
+    try:
+        token = os.environ.get('GITHUB_TOKEN', '')
+        repo = os.environ.get('GITHUB_REPOSITORY', '')
+
+        if not token or not repo:
+            print("GITHUB_TOKEN или GITHUB_REPOSITORY не заданы, пропускаю сохранение в репозиторий")
+            return
+
+        # Читаем текущий progress.json
+        with open('progress.json', 'r') as f:
+            data = json.load(f)
+        content = json.dumps(data, indent=4)
+        encoded = base64.b64encode(content.encode()).decode()
+        url = f"https://api.github.com/repos/{repo}/contents/progress.json"
+        headers = {
+            'Authorization': f'token {token}',
+            'Content-Type': 'application/json'
+        }
+        try:
+            resp = requests.get(url, headers=headers)
+            sha = resp.json().get('sha', '') if resp.status_code == 200 else ''
+        except:
+            sha = ''
+        payload = {
+            'message': f'Обновление прогресса: билет {data["current_ticket"]}, вопрос {data["current_question"]}',
+            'content': encoded,
+            'sha': sha
+        }
+        response = requests.put(url, json=payload, headers=headers)
+        if response.status_code in [200, 201]:
+            print(
+                f"Прогресс сохранён в репозиторий: билет {data['current_ticket']}, вопрос {data['current_question']}")
+        else:
+            print(f"Ошибка сохранения в репозиторий: {response.status_code}")
+
+    except Exception as e:
+        print(f"Ошибка сохранения в репозиторий: {e}")
 
 
 async def send_quiz():
@@ -58,12 +101,11 @@ async def send_quiz():
 
         await asyncio.sleep(4)
 
-        explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1}\n\n{ticket['explanation']}||"
+        explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}||"
 
         if discussion_chat_id:
             print("Ищем копию опроса в чате обсуждений...")
             discussion_msg = None
-
             async for message in app.get_chat_history(discussion_chat_id, limit=15):
                 if message.forward_from_chat and message.forward_from_chat.id == channel_chat.id:
                     if message.forward_from_message_id == poll_message.id:
@@ -86,7 +128,10 @@ async def send_quiz():
             print("Объяснение отправлено ответом в канал (чат обсуждений не привязан)")
 
         parser.save_progress()
-        print(f"Прогресс сохранён: билет {parser.current_ticket}, вопрос {parser.current_question}")
+        save_progress_to_github()
+        with open('progress.json', 'r') as f:
+            data = json.load(f)
+        print(f"Прогресс сохранён: билет {data['current_ticket']}, вопрос {data['current_question']}")
         print(f"Пост отправлен! Билет {ticket['ticket']}, вопрос {ticket['number']}")
         return True
 

@@ -11,8 +11,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore progress
+        id: restore_progress
+        uses: actions/download-artifact@v4
         with:
-          persist-credentials: false
+          name: progress
+          path: .
+        continue-on-error: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,7 +27,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyrogram tgcrypto telethon selenium webdriver-manager beautifulsoup4 lxml
+          pip install pyrogram tgcrypto telethon selenium webdriver-manager beautifulsoup4 lxml requests
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
 
@@ -31,6 +37,15 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           export PATH=$PATH:/usr/lib/chromium-browser/
           python main.py
+
+      - name: Save progress
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: progress
+          path: progress.json
