@@ -77,7 +77,6 @@ async def main():
         me = await app.get_me()
         print(f"{me.first_name} (@{me.username})")
 
-        # Проверяем, что канал существует
         try:
             chat = await app.get_chat(CHANNEL_ID)
             print(f"Канал найден: {chat.title}")
@@ -92,7 +91,11 @@ async def main():
     except Exception as e:
         print(f'Ошибка: {e}')
         print(traceback.format_exc())
-
+    finally:
+        try:
+            await app.terminate()
+        except:
+            pass
 
 if __name__ == '__main__':
     asyncio.run(main())
