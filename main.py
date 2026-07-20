@@ -1,11 +1,19 @@
 import asyncio
 import random
 import traceback
+import os
 from telethon import TelegramClient, types, functions
 from telethon.types import MessageEntitySpoiler
 from telethon.errors import AuthRestartError, FloodWaitError
-from config import API_ID, API_HASH, CHANNEL_ID
 from pdd_parser import PDDParser
+
+API_ID = int(os.environ.get('API_ID', 0))
+API_HASH = os.environ.get('API_HASH', '')
+CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 0))
+
+if not API_ID or not API_HASH or not CHANNEL_ID:
+    print("Ошибка: не заданы API_ID, API_HASH или CHANNEL_ID")
+    exit(1)
 
 client = TelegramClient('session_name', API_ID, API_HASH)
 parser = PDDParser('progress.json')
@@ -24,7 +32,6 @@ async def send_quiz():
 
         channel_entity = await client.get_entity(CHANNEL_ID)
 
-        # Отправляем картинку отдельно, если есть
         if ticket.get('image_url'):
             try:
                 await client.send_file(channel_entity, file=ticket['image_url'])

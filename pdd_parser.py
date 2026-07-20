@@ -5,7 +5,6 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 
 class PDDParser:
@@ -15,7 +14,7 @@ class PDDParser:
         self.current_ticket = 1
         self.current_question = 1
         self.driver = None
-        self.cached_questions = {}  # Кеш для уже загруженных билетов
+        self.cached_questions = {}
         self.load_progress()
         self._init_driver()
 
@@ -71,7 +70,6 @@ class PDDParser:
             print(f"Ошибка при сохранении прогресса: {e}")
 
     def parse_ticket(self, ticket_number):
-        # Проверяем кеш
         if ticket_number in self.cached_questions:
             print(f"Билет №{ticket_number} взят из кеша")
             return self.cached_questions[ticket_number]
@@ -80,7 +78,7 @@ class PDDParser:
         print(f"Паршу билет №{ticket_number}...")
         try:
             self.driver.get(url)
-            time.sleep(1)  # Уменьшила с 2 до 1 секунды
+            time.sleep(1)
             scripts = self.driver.find_elements(By.TAG_NAME, 'script')
             for script in scripts:
                 outer_html = script.get_attribute('outerHTML')
@@ -131,7 +129,7 @@ class PDDParser:
 
                         if questions:
                             print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
-                            self.cached_questions[ticket_number] = questions  # Сохраняем в кеш
+                            self.cached_questions[ticket_number] = questions
                             return questions
 
                     except Exception as e:
