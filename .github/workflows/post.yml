@@ -11,15 +11,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install telethon selenium webdriver-manager beautifulsoup4 lxml pyrogram tgcrypto
+          pip install pyrogram tgcrypto telethon selenium webdriver-manager beautifulsoup4 lxml
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
 
