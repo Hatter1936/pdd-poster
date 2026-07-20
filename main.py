@@ -2,6 +2,7 @@ import asyncio
 import random
 import traceback
 import os
+import base64
 from telethon import TelegramClient, types, functions
 from telethon.types import MessageEntitySpoiler
 from telethon.errors import AuthRestartError, FloodWaitError
@@ -10,10 +11,17 @@ from pdd_parser import PDDParser
 API_ID = int(os.environ.get('API_ID', 0))
 API_HASH = os.environ.get('API_HASH', '')
 CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 0))
+SESSION_B64 = os.environ.get('SESSION', '')
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
     print("Ошибка: не заданы API_ID, API_HASH или CHANNEL_ID")
     exit(1)
+
+if SESSION_B64:
+    session_bytes = base64.b64decode(SESSION_B64)
+    with open('session_name.session', 'wb') as f:
+        f.write(session_bytes)
+    print("Сессия восстановлена из секрета")
 
 client = TelegramClient('session_name', API_ID, API_HASH)
 parser = PDDParser('progress.json')
