@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install telethon selenium webdriver-manager beautifulsoup4 lxml
+          pip install telethon selenium webdriver-manager beautifulsoup4 lxml pyrogram tgcrypto
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
 
@@ -28,7 +28,7 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-          SESSION_PYRO: ${{ secrets.SESSION_PYRO }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
         run: |
           export PATH=$PATH:/usr/lib/chromium-browser/
           python main.py
