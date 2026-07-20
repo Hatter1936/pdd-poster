@@ -5,7 +5,7 @@ import os
 import base64
 from telethon import TelegramClient, types, functions
 from telethon.types import MessageEntitySpoiler
-from telethon.errors import AuthRestartError, FloodWaitError
+from telethon.errors import AuthRestartError, FloodWaitError, RPCError
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
@@ -18,10 +18,13 @@ if not API_ID or not API_HASH or not CHANNEL_ID:
     exit(1)
 
 if SESSION_B64:
-    session_bytes = base64.b64decode(SESSION_B64)
-    with open('session_name.session', 'wb') as f:
-        f.write(session_bytes)
-    print("Сессия восстановлена из секрета")
+    try:
+        session_bytes = base64.b64decode(SESSION_B64)
+        with open('session_name.session', 'wb') as f:
+            f.write(session_bytes)
+        print(f"Сессия восстановлена из секрета")
+    except Exception as e:
+        print(f"Ошибка восстановления сессии: {e}")
 
 client = TelegramClient('session_name', API_ID, API_HASH)
 parser = PDDParser('progress.json')
@@ -154,7 +157,14 @@ async def send_quiz():
 async def main():
     try:
         print("Подключаюсь к тг")
-        await client.start()
+
+        # ВАЖНО: используем connect + is_user_authorized, а НЕ start!
+        await client.connect()
+
+        if not await client.is_user_authorized():
+            print("Сессия невалидна! Проверьте секрет SESSION")
+            return
+
         print("Подключилась к тг")
 
         me = await client.get_me()
@@ -167,6 +177,8 @@ async def main():
 
     except AuthRestartError:
         print('Ошибка авторизации. Попробуй еще раз.')
+    except RPCError as e:
+        print(f'RPC ошибка: {e}')
     except Exception as e:
         print(f'Ошибка в функции main: {e}')
         print(traceback.format_exc())
