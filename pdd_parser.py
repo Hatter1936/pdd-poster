@@ -66,6 +66,11 @@ class PDDParser:
                     'current_ticket': self.current_ticket,
                     'current_question': self.current_question
                 }, f, indent=4, ensure_ascii=False)
+            print(f"PROGRESS_SAVED: ticket={self.current_ticket}, question={self.current_question}")
+
+            with open(os.environ.get('GITHUB_ENV', ''), 'a') as f:
+                f.write(f"LAST_TICKET={self.current_ticket}\n")
+                f.write(f"LAST_QUESTION={self.current_question}\n")
         except Exception as e:
             print(f"Ошибка при сохранении прогресса: {e}")
 
