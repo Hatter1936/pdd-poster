@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install telethon selenium webdriver-manager beautifulsoup4 lxml
+          pip install telethon selenium webdriver-manager beautifulsoup4 lxml pyrogram tgcrypto
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
 
