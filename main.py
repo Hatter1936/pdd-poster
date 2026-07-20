@@ -1,5 +1,4 @@
 import asyncio
-import random
 import traceback
 import os
 from pyrogram import Client
@@ -7,7 +6,7 @@ from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
 API_HASH = os.environ.get('API_HASH', '')
-CHANNEL_ID = os.environ.get('CHANNEL_ID', '')  # Теперь строка, а не число
+CHANNEL_ID = os.environ.get('CHANNEL_ID', '')
 SESSION_STRING = os.environ.get('SESSION_STRING', '')
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
@@ -54,10 +53,18 @@ async def send_quiz():
             explanation="Ознакомьтесь с объяснением в комментариях."
         )
 
-        await asyncio.sleep(2)
+        print("Опрос отправлен")
 
         explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-        await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
+        await app.send_message(
+            CHANNEL_ID,
+            explanation_text,
+            reply_to_message_id=poll_message.id
+        )
+        print("Объяснение отправлено в комментарии")
+
+        parser.save_progress()
+        print(f"Прогресс сохранён: билет {parser.current_ticket}, вопрос {parser.current_question}")
 
         print(f"Пост отправлен! Билет {ticket['ticket']}, вопрос {ticket['number']}")
         return True
@@ -85,17 +92,17 @@ async def main():
             return
 
         await send_quiz()
-        await app.stop()
+
+        try:
+            await app.stop()
+        except:
+            pass
         print('Отключено')
 
     except Exception as e:
         print(f'Ошибка: {e}')
         print(traceback.format_exc())
-    finally:
-        try:
-            await app.terminate()
-        except:
-            pass
+
 
 if __name__ == '__main__':
     asyncio.run(main())
