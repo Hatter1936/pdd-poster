@@ -2,31 +2,28 @@ import asyncio
 import random
 import traceback
 import os
-import base64
 from pyrogram import Client
-from pyrogram.types import Message, Poll, PollOption
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
 API_HASH = os.environ.get('API_HASH', '')
 CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 0))
-SESSION_B64 = os.environ.get('SESSION_PYRO', os.environ.get('SESSION', ''))
+SESSION_STRING = os.environ.get('SESSION_STRING', '')
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
     print("Ошибка: не заданы API_ID, API_HASH или CHANNEL_ID")
     exit(1)
 
-# Восстанавливаем сессию
-if SESSION_B64:
-    try:
-        session_bytes = base64.b64decode(SESSION_B64)
-        with open('my_session.session', 'wb') as f:
-            f.write(session_bytes)
-        print("Сессия восстановлена")
-    except Exception as e:
-        print(f"Ошибка восстановления сессии: {e}")
+if not SESSION_STRING:
+    print("Ошибка: не задана SESSION_STRING")
+    exit(1)
 
-app = Client("my_session", api_id=API_ID, api_hash=API_HASH)
+app = Client(
+    "my_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING
+)
 parser = PDDParser('progress.json')
 
 
@@ -86,6 +83,7 @@ async def main():
 
     except Exception as e:
         print(f'Ошибка: {e}')
+        print(traceback.format_exc())
 
 
 if __name__ == '__main__':
