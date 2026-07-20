@@ -4,7 +4,6 @@ import traceback
 import os
 import base64
 from pyrogram import Client
-from pyrogram.types import Message, Poll, PollOption
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
@@ -16,7 +15,6 @@ if not API_ID or not API_HASH or not CHANNEL_ID:
     print("Ошибка: не заданы API_ID, API_HASH или CHANNEL_ID")
     exit(1)
 
-# Восстанавливаем сессию
 if SESSION_B64:
     try:
         session_bytes = base64.b64decode(SESSION_B64)
@@ -38,6 +36,7 @@ async def send_quiz():
             return False
 
         print(f"Вопрос {ticket['number']} из билета {ticket['ticket']}")
+        print(f"Вопрос: {ticket['question'][:50]}...")
 
         if ticket.get('image_url'):
             try:
@@ -46,7 +45,7 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
+        options = [f"{i+1}. {a}" for i, a in enumerate(ticket['answers'])]
 
         poll_message = await app.send_poll(
             CHANNEL_ID,
@@ -86,6 +85,7 @@ async def main():
 
     except Exception as e:
         print(f'Ошибка: {e}')
+        print(traceback.format_exc())
 
 
 if __name__ == '__main__':
