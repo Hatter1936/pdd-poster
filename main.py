@@ -35,6 +35,9 @@ async def send_quiz():
 
         print(f"Вопрос {ticket['number']} из билета {ticket['ticket']}")
 
+        channel_chat = await app.get_chat(CHANNEL_ID)
+        discussion_chat_id = channel_chat.linked_chat.id if channel_chat.linked_chat else None
+
         if ticket.get('image_url'):
             try:
                 await app.send_photo(CHANNEL_ID, ticket['image_url'])
@@ -43,7 +46,6 @@ async def send_quiz():
                 print(f"Не удалось отправить картинку: {e}")
 
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
-
         poll_message = await app.send_poll(
             CHANNEL_ID,
             question=ticket['question'],
@@ -52,37 +54,56 @@ async def send_quiz():
             correct_option_id=ticket['correct_index'],
             explanation="Ознакомьтесь с объяснением в комментариях."
         )
-
         print("Опрос отправлен")
 
-        explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-        await app.send_message(
-            CHANNEL_ID,
-            explanation_text,
-            reply_to_message_id=poll_message.id
-        )
-        print("Объяснение отправлено в комментарии")
+        await asyncio.sleep(4)
+
+        explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1}\n\n{ticket['explanation']}||"
+
+        if discussion_chat_id:
+            print("Ищем копию опроса в чате обсуждений...")
+            discussion_msg = None
+
+            async for message in app.get_chat_history(discussion_chat_id, limit=15):
+                if message.forward_from_chat and message.forward_from_chat.id == channel_chat.id:
+                    if message.forward_from_message_id == poll_message.id:
+                        discussion_msg = message
+                        break
+
+            if discussion_msg:
+                print("Отправляем объяснение под спойлером в комментарии...")
+                await app.send_message(
+                    chat_id=discussion_chat_id,
+                    text=explanation_text,
+                    reply_to_message_id=discussion_msg.id
+                )
+                print("Объяснение отправлено в комментарии под спойлером!")
+            else:
+                await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
+                print("Объяснение отправлено ответом в канал (не нашли пост в чате обсуждений)")
+        else:
+            await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
+            print("Объяснение отправлено ответом в канал (чат обсуждений не привязан)")
 
         parser.save_progress()
         print(f"Прогресс сохранён: билет {parser.current_ticket}, вопрос {parser.current_question}")
-
         print(f"Пост отправлен! Билет {ticket['ticket']}, вопрос {ticket['number']}")
         return True
 
     except Exception as e:
-        print(f'Ошибка: {e}')
+        print(f'Ошибка во время выполнения send_quiz: {e}')
         print(traceback.format_exc())
         return False
 
 
 async def main():
     try:
-        print("Подключаюсь к Telegram...")
+        print("Подключаемся к Telegram...")
         await app.start()
         print("Подключено!")
 
         me = await app.get_me()
-        print(f"{me.first_name} (@{me.username})")
+        print(f"Вы вошли как: {me.first_name} (@{me.username})")
 
         try:
             chat = await app.get_chat(CHANNEL_ID)
