@@ -1,0 +1,4 @@
+telethon
+pillow
+beautifulsoup4
+requests

@@ -1,0 +1,9 @@
+.idea/
+__pycache__/
+*.pyc
+.venv/
+venv/
+config.py
+session_name.session
+progress.json
+debug_*.html
