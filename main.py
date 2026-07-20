@@ -58,7 +58,7 @@ async def send_quiz():
 
         await asyncio.sleep(4)
 
-        explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1}\n\n{ticket['explanation']}||"
+        explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}||"
 
         if discussion_chat_id:
             print("Ищем копию опроса в чате обсуждений...")
