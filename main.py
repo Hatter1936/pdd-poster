@@ -7,7 +7,7 @@ from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
 API_HASH = os.environ.get('API_HASH', '')
-CHANNEL_ID = int(os.environ.get('CHANNEL_ID', 0))
+CHANNEL_ID = os.environ.get('CHANNEL_ID', '')  # Теперь строка, а не число
 SESSION_STRING = os.environ.get('SESSION_STRING', '')
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
@@ -76,6 +76,14 @@ async def main():
 
         me = await app.get_me()
         print(f"{me.first_name} (@{me.username})")
+
+        # Проверяем, что канал существует
+        try:
+            chat = await app.get_chat(CHANNEL_ID)
+            print(f"Канал найден: {chat.title}")
+        except Exception as e:
+            print(f"Ошибка: канал не найден - {e}")
+            return
 
         await send_quiz()
         await app.stop()
