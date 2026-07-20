@@ -35,10 +35,9 @@ def save_progress_to_github():
         repo = os.environ.get('GITHUB_REPOSITORY', '')
 
         if not token or not repo:
-            print("GITHUB_TOKEN или GITHUB_REPOSITORY не заданы, пропускаю сохранение в репозиторий")
+            print("GITHUB_TOKEN или GITHUB_REPOSITORY не заданы")
             return
 
-        # Читаем текущий progress.json
         with open('progress.json', 'r') as f:
             data = json.load(f)
         content = json.dumps(data, indent=4)
@@ -60,10 +59,9 @@ def save_progress_to_github():
         }
         response = requests.put(url, json=payload, headers=headers)
         if response.status_code in [200, 201]:
-            print(
-                f"Прогресс сохранён в репозиторий: билет {data['current_ticket']}, вопрос {data['current_question']}")
+            print(f"Прогресс сохранён в репозиторий")
         else:
-            print(f"Ошибка сохранения в репозиторий: {response.status_code}")
+            print(f"Ошибка сохранения: {response.status_code}")
 
     except Exception as e:
         print(f"Ошибка сохранения в репозиторий: {e}")
