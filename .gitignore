@@ -5,6 +5,7 @@ __pycache__/
 venv/
 config.py
 session_name.session
+*.session
 session.txt
 progress.json
 debug_*.html
