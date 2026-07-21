@@ -69,8 +69,7 @@ def save_progress_to_github():
 
         response = requests.put(url, json=payload, headers=headers)
 
-        # ТО САМОЕ ИСПРАВЛЕНИЕ ТУТ:
-        if response.status_code in [200, 201]:
+        if response.status_code == 200 or 201:
             print("Прогресс сохранён в репозиторий GitHub")
         else:
             print(f"Ошибка сохранения на GitHub: {response.status_code}")
