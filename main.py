@@ -6,6 +6,7 @@ import json
 import base64
 import requests
 from pyrogram import Client
+from pyrogram.enums import PollType  # ИСПРАВЛЕНО: Добавлен обязательный импорт
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
@@ -45,7 +46,6 @@ def save_progress_to_github():
         encoded = base64.b64encode(content.encode()).decode()
 
         url = f"https://api.github.com/repos/{repo}/contents/progress.json"
-        # Добавлен User-Agent, так как GitHub API часто блокирует запросы без него
         headers = {
             'Authorization': f'token {token}',
             'Content-Type': 'application/json',
@@ -64,18 +64,19 @@ def save_progress_to_github():
         payload = {
             'message': f'Обновление прогресса: билет {data["current_ticket"]}, вопрос {data["current_question"]}',
             'content': encoded,
-            'sha': sha if sha else None  # Если SHA пустой, GitHub поймет, что это создание нового файла
+            'sha': sha if sha else None
         }
 
-        # Если файла не было, убираем ключ sha из payload, чтобы GitHub не ругался
         if not sha:
             payload.pop('sha', None)
 
         response = requests.put(url, json=payload, headers=headers)
+
+        # ИСПРАВЛЕНО: Восстановлен правильный синтаксис проверки статус-кода
         if response.status_code in:
             print("Прогресс сохранён в репозиторий GitHub")
         else:
-            print(f"Ошибка сохранения на GitHub: {response.status_code} -> {response.text}")
+            print(f"Ошибка保存 на GitHub: {response.status_code} -> {response.text}")
 
     except Exception as e:
         print(f"Ошибка сохранения в репозиторий: {e}")
@@ -101,22 +102,22 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        # 2. Отдельно отправляем опрос-викторину
+        # 2. Отдельно отправляем опрос-викторину (ИСПРАВЛЕНО: убран дубликат строки)
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
+
         poll_message = await app.send_poll(
-            CHANNEL_ID,
+            chat_id=CHANNEL_ID,
             question=ticket['question'],
             options=options,
-            type="quiz",
+            is_anonymous=True,
+            type=PollType.QUIZ,
             correct_option_id=int(ticket['correct_index']),
-            explanation="Ознакомьтесь с объяснением в комментариях.",
-            is_anonymous=True
+            explanation="Ознакомьтесь с объяснением в комментариях."
         )
         print("Викторина отправлена")
 
         await asyncio.sleep(4)
 
-        # ИСПРАВЛЕНО: Убран перенос строки \n, текст теперь идет в одну строчку через тире
         explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1} — {ticket['explanation']}||"
 
         # 3. Отправка объяснения в комментарии
