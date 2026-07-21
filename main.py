@@ -2,146 +2,176 @@ import asyncio
 import random
 import traceback
 import os
-from telethon import TelegramClient, types, functions
-from telethon.errors import AuthRestartError
+from pyrogram import Client, types, filters
+from pyrogram.errors import AuthRestartError, BroadcastPublicVotersForbidden
 from config import API_ID, API_HASH, CHANNEL_ID
+from pdd_parser import PDDParser
 
-# Инициализируем клиента юзербота
-client = TelegramClient('session_name', API_ID, API_HASH)
-
-
-def get_ticket():
-    """
-    Данные вашего билета ПДД.
-    """
-    return {
-        'question': 'По какой траектории Вам разрешается выполнить поворот налево?',
-        'answers': ['1. Только по А', '2. Только по Б', '3. По любой из указанных'],
-        'correct_index': 1,  # Индекс правильного ответа (0 - первый, 1 - второй)
-        'explanation': 'При повороте налево на данном перекрестке вы можете выбрать любую траекторию.',
-        'image_url': r'C:\Users\User\Pictures\347653751514314.jpg'  # Ваш локальный путь к картинке
-    }
+# Инициализируем клиента
+app = Client(
+    "my_account",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=os.environ.get("SESSION_STRING")  # Опционально, для автоматического входа
+)
 
 
 async def send_quiz():
+    parser = PDDParser()
+
     try:
-        ticket = get_ticket()
-        print('Формируем пост-викторину...')
+        # Получаем следующий вопрос
+        ticket = parser.get_next_question()
 
-        # Получаем структуру канала
-        channel_entity = await client.get_entity(CHANNEL_ID)
+        if not ticket:
+            print("Нет вопросов для публикации")
+            return False
 
-        # 1. ОТПРАВЛЯЕМ ИЗОБРАЖЕНИЕ БИЛЕТА
-        if ticket.get('image_url') and os.path.exists(ticket['image_url']):
-            print('Отправляем изображение билета...')
-            await client.send_file(channel_entity, file=ticket['image_url'])
-        else:
-            print('Предупреждение: Локальный файл картинки не найден, отправляем только опрос.')
+        print(f"Вопрос {ticket['number']} из билета {ticket['ticket']}")
 
-        # 2. СОБИРАЕМ ВАРИАНТЫ ОТВЕТОВ ОПРОСА
-        answers_objects = []
-        for i, a in enumerate(ticket['answers']):
-            answers_objects.append(
-                types.PollAnswer(
-                    text=types.TextWithEntities(text=a, entities=[]),
-                    option=str(i).encode('utf-8')
-                )
+        # Получаем канал
+        channel = await app.get_chat(CHANNEL_ID)
+        print(f"Канал найден: {channel.title}")
+
+        # Проверяем, есть ли картинка
+        image_path = None
+        if ticket.get('image_url'):
+            # Парсим URL картинки и скачиваем её
+            image_url = ticket['image_url']
+            if image_url.startswith('//'):
+                image_url = 'https:' + image_url
+            elif image_url.startswith('/'):
+                image_url = 'https://drom.ru' + image_url
+
+            try:
+                import requests
+                response = requests.get(image_url, timeout=10)
+                if response.status_code == 200:
+                    # Сохраняем временно
+                    temp_image = f"temp_{ticket['number']}.jpg"
+                    with open(temp_image, 'wb') as f:
+                        f.write(response.content)
+                    image_path = temp_image
+                    print("Картинка скачана")
+            except Exception as e:
+                print(f"Не удалось скачать картинку: {e}")
+
+        # Отправляем картинку если есть
+        if image_path and os.path.exists(image_path):
+            await app.send_photo(
+                chat_id=CHANNEL_ID,
+                photo=image_path,
+                caption=f"Билет {ticket['ticket']}, вопрос {ticket['number']}"
             )
+            # Удаляем временный файл
+            os.remove(image_path)
+            print("Картинка отправлена")
 
-        # 3. СОБИРАЕМ ОБЪЕКТ POLL (СТРОГО ПО СХЕМЕ TELETHON)
-        poll_object = types.Poll(
-            id=random.randint(1111111111111111, 9999999999999999),
-            hash=random.randint(1111111111111111, 9999999999999999),
-            question=types.TextWithEntities(text=ticket['question'], entities=[]),
-            answers=answers_objects,
-            closed=False,
-            public_voters=False,
-            multiple_choice=False,
-            quiz=True,
-            countries_iso2=[]
+        # Создаем опрос с правильными параметрами
+        print("Отправляем опрос...")
+
+        poll_message = await app.send_poll(
+            chat_id=CHANNEL_ID,
+            question=ticket['question'],
+            options=ticket['answers'],
+            type="quiz",
+            correct_option_id=ticket['correct_index'],
+            explanation="Ознакомьтесь с объяснением в комментариях.",
+            explanation_parse_mode="html",
+            is_anonymous=False,  # Для каналов нужно False
+            public_voters=False,  # ВАЖНО: для каналов обязательно False
+            open_period=None,  # Бессрочно
+            close_date=None,
+            is_closed=False
         )
 
-        # 4. ФОРМИРУЕМ МЕДИА-ПАКЕТ КВИЗА (ИНСТРУКЦИЯ ВНУТРИ ЛАМПОЧКИ)
-        poll_media = types.InputMediaPoll(
-            poll=poll_object,
-            correct_answers=[int(ticket['correct_index'])],
-            solution='Ознакомьтесь с объяснением в комментариях.',
-            solution_entities=[]
-        )
+        print(f"Опрос отправлен! ID: {poll_message.id}")
 
-        # 5. ПУБЛИКУЕМ НАТИВНЫЙ ОПРОС-ВИКТОРНУ В КАНАЛ
-        print('Публикуем нативный опрос-викторину...')
-        poll_message = await client.send_message(channel_entity, file=poll_media)
+        # Ожидаем немного для синхронизации
+        await asyncio.sleep(3)
 
-        # 6.ОТПРАВКА ОБЪЯСНЕНИЯ ПОД СПОЙЛЕРОМ В КОММЕНТАРИИ
-        print('Ожидаем синхронизации с чатом обсуждений...')
-        await asyncio.sleep(4)  # Даем Telegram время переслать пост в связанный чат
+        # Отправляем объяснение в комментарии под спойлером
+        try:
+            # Получаем информацию о канале для доступа к комментариям
+            chat_full = await app.get_chat(CHANNEL_ID)
 
-        # Запрашиваем ID связанного чата комментариев
-        full_channel = await client(functions.channels.GetFullChannelRequest(channel=channel_entity))
-        discussion_chat_id = full_channel.full_chat.linked_chat_id
+            if hasattr(chat_full, 'linked_chat_id') and chat_full.linked_chat_id:
+                discussion_group_id = chat_full.linked_chat_id
+                print(f"Группа обсуждения найдена: {discussion_group_id}")
 
-        if discussion_chat_id:
-            discussion_entity = await client.get_entity(discussion_chat_id)
-
-            # Ищем автоматическую копию нашего опроса внутри чата комментариев
-            print('Ищем пост в группе обсуждения...')
-            discussion_msg = None
-            async for msg in client.iter_messages(discussion_entity, limit=15):
-                if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
-                    discussion_msg = msg
-                    break
-
-            # Если копия найдена, пишем ответ на нее, что создает комментарий под постом
-            if discussion_msg:
-                print('Отправляем объяснение под спойлером в комментарии...')
+                # Отправляем объяснение как ответ на опрос
                 spoiler_text = f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>"
-                await client.send_message(
-                    discussion_entity,
-                    message=spoiler_text,
-                    reply_to=discussion_msg.id,
-                    parse_mode='html'  # HTML-режим активирует тег спойлера
+
+                await app.send_message(
+                    chat_id=discussion_group_id,
+                    text=spoiler_text,
+                    parse_mode="html",
+                    reply_to_message_id=poll_message.id
                 )
-                print("Успех: Объяснение отправлено в комментарии под спойлером!")
+                print("Объяснение отправлено в комментарии под спойлером!")
             else:
-                print("Предупреждение: Не нашли пост в обсуждении. Шлем обычным ответом в ленту.")
-                await client.send_message(channel_entity, f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>",
-                                          reply_to=poll_message.id, parse_mode='html')
-        else:
-            print("Ошибка: К каналу не привязана группа обсуждения (комментарии выключены в настройках).")
-            await client.send_message(channel_entity, f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>",
-                                      reply_to=poll_message.id, parse_mode='html')
+                print("Группа обсуждения не найдена, отправляем в канал")
+                spoiler_text = f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>"
+                await app.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=spoiler_text,
+                    parse_mode="html",
+                    reply_to_message_id=poll_message.id
+                )
+
+        except Exception as e:
+            print(f"Ошибка при отправке комментария: {e}")
+            # Пробуем отправить в канал как ответ
+            try:
+                spoiler_text = f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>"
+                await app.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=spoiler_text,
+                    parse_mode="html",
+                    reply_to_message_id=poll_message.id
+                )
+            except:
+                pass
 
         return True
 
+    except BroadcastPublicVotersForbidden:
+        print("Ошибка: Опросы с публичными голосами запрещены в каналах")
+        print("Убедитесь, что public_voters=False")
+        return False
     except Exception as e:
-        print(f'Ошибка во время выполнения send_quiz: {e}')
-        print(traceback.format_exc())
+        print(f"Ошибка: {e}")
+        traceback.print_exc()
         return False
 
 
 async def main():
     try:
         print("Подключаемся к Telegram...")
-        await client.start(
-            phone=lambda: input("Введите номер телефона (в формате +7...): "),
-            code_callback=lambda: input("Введите код из Telegram: "),
-            password=lambda: input("Введите пароль двухэтапной аутентификации (если есть): ")
-        )
-        print("Подключено к Telegram")
 
-        me = await client.get_me()
-        print(f"Вход выполнен как: {me.first_name} (@{me.username})")
+        # Если есть SESSION_STRING, используем её
+        session_string = os.environ.get("SESSION_STRING")
+        if session_string:
+            await app.start()
+        else:
+            # Иначе запрашиваем авторизацию
+            await app.start()
 
+        print("Подключено!")
+
+        me = await app.get_me()
+        print(f"Вы вошли как: {me.first_name} (@{me.username})")
+
+        # Отправляем викторину
         await send_quiz()
-        await client.disconnect()
-        print('Сессия закрыта. Отключено.')
 
-    except AuthRestartError:
-        print('Ошибка авторизации. Попробуйте еще раз.')
+        await app.stop()
+        print("Отключено")
+
     except Exception as e:
-        print(f'Ошибка в функции main: {e}')
+        print(f"Ошибка в main: {e}")
+        traceback.print_exc()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

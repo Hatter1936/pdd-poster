@@ -53,20 +53,17 @@ class PDDParser:
             print(f"Ошибка при сохранении прогресса: {e}")
 
     def parse_ticket(self, ticket_number):
-        if ticket_number in self.cached_questions:
-            print(f"Билет №{ticket_number} взят из кеша")
-            return self.cached_questions[ticket_number]
-
-        url = self.base_url.format(ticket_number)
-        print(f"Паршу билет №{ticket_number}...")
+        """Парсит билет по номеру"""
+        url = f"https://drom.ru_{ticket_number}/training/"
         try:
             response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
 
+            # Ищем скрипт с данными
             script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
             if not script_tag:
-                print(f"Не найден скрипт с данными")
+                print(f"Не найден скрипт с данными в билете {ticket_number}")
                 return []
 
             try:
@@ -75,32 +72,36 @@ class PDDParser:
                     data = data['initialState']
 
                 questions_data = data.get('questions', [])
-                if not questions_data:
-                    return []
-
                 questions = []
+
                 for q in questions_data:
                     answers = []
                     for answer in q.get('answers', []):
-                        ans_text = answer.get('text', '')
-                        if ans_text:
-                            answers.append(ans_text)
+                        if answer.get('text'):
+                            answers.append(answer['text'])
 
                     if len(answers) < 2:
                         continue
 
+                    # Находим правильный ответ
                     correct_index = 0
                     for i, answer in enumerate(q.get('answers', [])):
                         if answer.get('isCorrect', False):
                             correct_index = i
                             break
 
+                    # Получаем изображение
+                    image_url = None
+                    if q.get('image'):
+                        image_url = q['image']['url'] if isinstance(q['image'], dict) else q['image']
+
+                    # Очищаем объяснение от HTML тегов
                     explanation = q.get('commentTagged', '')
                     if explanation:
                         explanation = re.sub(r'<[^>]+>', ' ', explanation)
                         explanation = re.sub(r'\s+', ' ', explanation).strip()
                     else:
-                        explanation = "Не нашла объяснение"
+                        explanation = "Объяснение не найдено"
 
                     questions.append({
                         'number': q.get('num', 0),
@@ -109,20 +110,19 @@ class PDDParser:
                         'answers': answers,
                         'correct_index': correct_index,
                         'explanation': explanation,
-                        'image_url': q.get('image', None)
+                        'image_url': image_url
                     })
 
                 if questions:
                     print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
-                    self.cached_questions[ticket_number] = questions
-                    return questions
-                else:
-                    return []
-            except Exception as e:
-                print(f"Ошибка обработки данных: {e}")
+                return questions
+
+            except json.JSONDecodeError as e:
+                print(f"Ошибка парсинга JSON: {e}")
                 return []
+
         except Exception as e:
-            print(f"Ошибка при загрузке билета {ticket_number}: {e}")
+            print(f"Ошибка загрузки билета {ticket_number}: {e}")
             return []
 
     def get_next_question(self):
