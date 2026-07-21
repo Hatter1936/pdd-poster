@@ -7,7 +7,7 @@ import base64
 import requests
 from pyrogram import Client
 from pyrogram.enums import PollType
-from pyrogram.raw import types  # Обязательно для сборки нативного опроса
+from pyrogram.raw import types, functions  # Добавлен functions для прямого invoke
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
@@ -102,7 +102,7 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        # 2. Формируем и отправляем опрос через Raw API (Обход бага Pyrogram)
+        # 2. ПРЯМАЯ ОТПРАВКА НА СЕРВЕРА TELEGRAM ЧЕРЕЗ INVOKE (Полный обход багов любых библиотек)
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
 
         answers_objects = []
@@ -122,7 +122,7 @@ async def send_quiz():
             question=types.TextWithEntities(text=ticket['question'], entities=[]),
             answers=answers_objects,
             closed=False,
-            public_voters=False,  # Отключаем публичные голоса для прохождения валидации каналов
+            public_voters=False,  # КРИТИЧЕСКИ ВАЖНО: Анонимное голосование, разрешенное в каналах
             multiple_choice=False,
             quiz=True,  # Режим викторины
             countries_iso2=[]
@@ -135,24 +135,41 @@ async def send_quiz():
             solution_entities=[]
         )
 
-        print("Отправляем викторину через send_raw_media...")
-        poll_message = await app.send_raw_media(
-            chat_id=CHANNEL_ID,
-            media=poll_media
+        print("Отправляем викторину напрямую через invoke(messages.SendMedia)...")
+        # Получаем чистый объект назначения для raw-запроса
+        peer = await app.resolve_peer(CHANNEL_ID)
+
+        # Вызываем нативный метод Telegram API
+        raw_result = await app.invoke(
+            functions.messages.SendMedia(
+                peer=peer,
+                media=poll_media,
+                message="",
+                random_id=random.randint(11111111, 99999999)
+            )
         )
-        print("Викторина отправлена")
+
+        # Достаем ID созданного сообщения из логов ответа Telegram
+        if hasattr(raw_result, "updates"):
+            poll_message_id = next((u.id for u in raw_result.updates if hasattr(u, "id")), None)
+        elif hasattr(raw_result, "id"):
+            poll_message_id = raw_result.id
+        else:
+            poll_message_id = None
+
+        print(f"Викторина успешно отправлена! ID сообщения: {poll_message_id}")
 
         await asyncio.sleep(4)
 
         explanation_text = f"||Правильный ответ: {ticket['correct_index'] + 1} — {ticket['explanation']}||"
 
         # 3. Отправка объяснения в комментарии
-        if discussion_chat_id:
+        if discussion_chat_id and poll_message_id:
             print("Ищем копию опроса в чате обсуждений...")
             discussion_msg = None
             async for message in app.get_chat_history(discussion_chat_id, limit=15):
                 if message.forward_from_chat and message.forward_from_chat.id == channel_chat.id:
-                    if message.forward_from_message_id == poll_message.id:
+                    if message.forward_from_message_id == poll_message_id:
                         discussion_msg = message
                         break
 
@@ -164,11 +181,13 @@ async def send_quiz():
                 )
                 print("Объяснение отправлено в комментарии под спойлером!")
             else:
-                await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
+                await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message_id)
                 print("Объяснение отправлено ответом в канал (не нашли в обсуждениях)")
         else:
-            await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
-            print("Объяснение отправлено ответом в канал (чат обсуждений не привязан)")
+            # На случай если чат не привязан или не удалось вытянуть ID сообщения
+            target_reply_id = poll_message_id if poll_message_id else None
+            await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=target_reply_id)
+            print("Объяснение отправлено ответом в канал")
 
         # 4. Сохранение прогресса
         parser.save_progress()
