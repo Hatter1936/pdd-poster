@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 class PDDParser:
     def __init__(self, progress_file='progress.json'):
         self.progress_file = progress_file
-        self.base_url = 'https://www.drom.ru/pdd/bilet_{}/training/'
+        self.base_url = 'https://drom.ru_{}/training/'
         self.current_ticket = 1
         self.current_question = 1
         self.cached_questions = {}
@@ -42,9 +42,13 @@ class PDDParser:
                     'current_question': self.current_question
                 }, f, indent=4, ensure_ascii=False)
             print(f"PROGRESS_SAVED: ticket={self.current_ticket}, question={self.current_question}")
-            with open(os.environ.get('GITHUB_ENV', ''), 'a') as f:
-                f.write(f"LAST_TICKET={self.current_ticket}\n")
-                f.write(f"LAST_QUESTION={self.current_question}\n")
+
+            # Запись в GITHUB_ENV происходит только если переменная существует (запуск в GitHub Actions)
+            github_env = os.environ.get('GITHUB_ENV')
+            if github_env and os.path.exists(github_env):
+                with open(github_env, 'a', encoding='utf-8') as f:
+                    f.write(f"LAST_TICKET={self.current_ticket}\n")
+                    f.write(f"LAST_QUESTION={self.current_question}\n")
         except Exception as e:
             print(f"Ошибка при сохранении прогресса: {e}")
 
@@ -58,11 +62,9 @@ class PDDParser:
         try:
             response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
-
             soup = BeautifulSoup(response.text, 'html.parser')
 
             script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
-
             if not script_tag:
                 print(f"Не найден скрипт с данными")
                 return []
@@ -71,6 +73,7 @@ class PDDParser:
                 data = json.loads(script_tag.string)
                 if 'initialState' in data:
                     data = data['initialState']
+
                 questions_data = data.get('questions', [])
                 if not questions_data:
                     return []
@@ -82,19 +85,23 @@ class PDDParser:
                         ans_text = answer.get('text', '')
                         if ans_text:
                             answers.append(ans_text)
+
                     if len(answers) < 2:
                         continue
+
                     correct_index = 0
                     for i, answer in enumerate(q.get('answers', [])):
                         if answer.get('isCorrect', False):
                             correct_index = i
                             break
+
                     explanation = q.get('commentTagged', '')
                     if explanation:
                         explanation = re.sub(r'<[^>]+>', ' ', explanation)
                         explanation = re.sub(r'\s+', ' ', explanation).strip()
                     else:
                         explanation = "Не нашла объяснение"
+
                     questions.append({
                         'number': q.get('num', 0),
                         'ticket': ticket_number,
@@ -111,18 +118,15 @@ class PDDParser:
                     return questions
                 else:
                     return []
-
             except Exception as e:
                 print(f"Ошибка обработки данных: {e}")
                 return []
-
         except Exception as e:
             print(f"Ошибка при загрузке билета {ticket_number}: {e}")
             return []
 
     def get_next_question(self):
         max_tickets = 40
-
         for attempt in range(max_tickets * 2):
             if self.current_ticket > max_tickets:
                 print("Я всё сделала, господин! Начинаем с первого.")
@@ -131,7 +135,6 @@ class PDDParser:
                 self.save_progress()
 
             questions = self.parse_ticket(self.current_ticket)
-
             if not questions:
                 print(f"Не смогла получить вопросы из билета {self.current_ticket}, переходим к следующему")
                 self.current_ticket += 1
@@ -141,20 +144,17 @@ class PDDParser:
 
             if self.current_question <= len(questions):
                 question_data = questions[self.current_question - 1]
-
                 if self.check_limits(question_data):
                     result = question_data.copy()
                     self.current_question += 1
-
                     if self.current_question > len(questions):
                         self.current_ticket += 1
                         self.current_question = 1
-
                     self.save_progress()
                     return result
                 else:
                     print(
-                        f"Вопрос {self.current_question} билета {self.current_ticket} оказался слишком длинный, пропускаем")
+                        f"Вопрос {self.current_question} билета {self.current_ticket} превысил лимиты Telegram, пропускаем")
                     self.current_question += 1
                     if self.current_question > len(questions):
                         self.current_ticket += 1
@@ -171,13 +171,17 @@ class PDDParser:
         return None
 
     def check_limits(self, question_data):
-        if len(question_data['question']) > 255:
-            print(f"Вопрос оказался слишком длинным: {len(question_data['question'])}")
+        # Лимиты Telegram для текста опросов (Poll)
+        if len(question_data['question']) > 500:
+            print(f"Вопрос оказался слишком длинным: {len(question_data['question'])} символов (макс 500)")
             return False
+
+        # Текст каждого ответа: макс 100 символов
         for i, answer in enumerate(question_data['answers']):
             if len(answer) > 100:
-                print(f"Ответ {i + 1} оказался слишком длинным: {len(answer)} символов")
+                print(f"Ответ {i + 1} оказался слишком длинным: {len(answer)} символов (макс 100)")
                 return False
+
         return True
 
     def reset_progress(self):

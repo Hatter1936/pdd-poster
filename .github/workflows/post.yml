@@ -2,8 +2,8 @@ name: PDD Daily Post
 
 on:
   schedule:
-    - cron: '0 7,15 * * *'
-  workflow_dispatch:
+    - cron: '0 7,15 * * *'  # Запуск каждый день в 07:00 и 15:00 UTC
+  workflow_dispatch:        # Возможность запустить вручную одной кнопкой
 
 permissions:
   contents: write
@@ -14,34 +14,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Скачиваем актуальный код репозитория (вместе с progress.json)
       - uses: actions/checkout@v4
 
-      - name: Restore progress
-        id: restore_progress
-        uses: actions/download-artifact@v4
-        with:
-          name: progress
-          path: .
-        continue-on-error: true
-
+      # 2. Проверяем наличие файла прогресса (если его нет в репозитории, создаем стартовый)
       - name: Check if progress exists
         run: |
           if [ -f progress.json ]; then
-            echo "✅ progress.json найден"
+            echo "✅ progress.json найден в репозитории"
             cat progress.json
           else
+            echo "ℹ️ progress.json не найден, создаем начальный"
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
           fi
 
+      # 3. Настраиваем Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      # 4. Устанавливаем только нужные зависимости (убрали проблемный lxml)
       - name: Install dependencies
         run: |
-          pip install pyrogram tgcrypto requests beautifulsoup4 lxml
+          pip install pyrogram tgcrypto requests beautifulsoup4
 
+      # 5. Запускаем публикацию поста
       - name: Run script
         env:
           API_ID: ${{ secrets.API_ID }}
@@ -52,10 +50,3 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python main.py
-
-      - name: Save progress
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: progress
-          path: progress.json
