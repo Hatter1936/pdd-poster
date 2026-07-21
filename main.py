@@ -1,207 +1,167 @@
 import asyncio
-import random
-import traceback
 import os
-import json
-import base64
-import requests
+import sys
+import random
 from telethon import TelegramClient, types, functions
-from telethon.sessions import StringSession  # ИСПРАВЛЕНО: Добавлен импорт для работы со строкой сессии
-from telethon.types import MessageEntitySpoiler
-from telethon.errors import AuthRestartError
+from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError
 
-API_ID = int(os.environ.get('API_ID', 0))
-API_HASH = os.environ.get('API_HASH', '')
-CHANNEL_ID = os.environ.get('CHANNEL_ID', '')
-SESSION_STRING = os.environ.get('SESSION_STRING', '')
+try:
+    from config import API_ID, API_HASH, CHANNEL_ID
+except ImportError as e:
+    print(f"Ошибка импорта config.py: {e}")
+    sys.exit(1)
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
-    print("Ошибка: не заданы API_ID, API_HASH или CHANNEL_ID")
-    exit(1)
-
-if not SESSION_STRING:
-    print("Ошибка: не задана SESSION_STRING")
-    exit(1)
-
-# ИСПРАВЛЕНО: Правильная инициализация клиента Telethon через StringSession
-client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    print("Критическая ошибка: Неправильные данные в config.py")
+    sys.exit(1)
 
 from pdd_parser import PDDParser
 
-parser = PDDParser('progress.json')
-
-
-def save_progress_to_github():
-    try:
-        token = os.environ.get('GITHUB_TOKEN', '')
-        repo = os.environ.get('GITHUB_REPOSITORY', '')
-        if not token or not repo:
-            return
-
-        with open('progress.json', 'r') as f:
-            data = json.load(f)
-
-        content = json.dumps(data, indent=4)
-        encoded = base64.b64encode(content.encode()).decode()
-
-        # ИСПРАВЛЕНО: Корректный URL для обращения к API GitHub
-        url = f"https://github.com{repo}/contents/progress.json"
-
-        headers = {
-            'Authorization': f'token {token}',
-            'Content-Type': 'application/json',
-            'User-Agent': 'Telethon-PDD-Bot'
-        }
-
-        sha = ''
-        try:
-            resp = requests.get(url, headers=headers)
-            if resp.status_code == 200:
-                sha = resp.json().get('sha', '')
-        except:
-            sha = ''
-
-        payload = {
-            'message': f'Обновление прогресса: билет {data["current_ticket"]}, вопрос {data["current_question"]}',
-            'content': encoded,
-            'sha': sha if sha else None
-        }
-
-        if not sha:
-            payload.pop('sha', None)
-
-        response = requests.put(url, json=payload, headers=headers)
-
-        # ИСПРАВЛЕНО: Правильная логическая проверка статус-кодов (200 или 201)
-        if response.status_code == 200 or 201:
-            print("Прогресс сохранён в репозиторий GitHub")
-        else:
-            print(f"Ошибка сохранения на GitHub: {response.status_code} -> {response.text}")
-    except Exception as e:
-        print(f"Ошибка сохранения в репозиторий: {e}")
+client = TelegramClient('pdd_session', API_ID, API_HASH)
 
 
 async def send_quiz():
+    parser = PDDParser()
     try:
         ticket = parser.get_next_question()
         if not ticket:
-            print("Не удалось получить вопрос")
+            print("Нет вопросов для публикации, господин")
             return False
 
         print(f"Вопрос {ticket['number']} из билета {ticket['ticket']}")
-
         channel_entity = await client.get_entity(CHANNEL_ID)
+        print(f"Канал найден: {channel_entity.title}")
 
-        # 1. Отдельно отправляем изображение билета
         if ticket.get('image_url'):
+            image_url = ticket['image_url']
+            if image_url.startswith('//'):
+                image_url = 'https:' + image_url
+            elif image_url.startswith('/'):
+                image_url = 'https://drom.ru' + image_url
+
             try:
-                await client.send_file(channel_entity, file=ticket['image_url'])
+                print(f"Отправляю картинку: {image_url}")
+                await client.send_file(channel_entity, file=image_url)
                 print("Картинка отправлена")
+                await asyncio.sleep(2)
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        # 2. Формируем варианты ответов опроса
-        options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
-        answers_objects = []
-        for i, a in enumerate(options):
-            answers_objects.append(
+        print("Отправляю викторину...")
+
+        poll_answers = []
+        for i, answer in enumerate(ticket['answers']):
+            numbered_answer = f"{i + 1}. {answer}"
+            poll_answers.append(
                 types.PollAnswer(
-                    text=types.TextWithEntities(text=a, entities=[]),
-                    option=str(i).encode('utf-8')
+                    text=numbered_answer,
+                    option=bytes([i])
                 )
             )
 
-        # 3. Собираем сам объект Poll (public_voters=False ГАРАНТИРУЕТ анонимность)
-        poll_id = random.randint(1111111111111111, 9999999999999999)
-        poll_object = types.Poll(
-            id=poll_id,
-            hash=poll_id,
-            question=types.TextWithEntities(text=ticket['question'], entities=[]),
-            answers=answers_objects,
-            closed=False,
-            public_voters=False,  # Только анонимные викторины разрешены в каналах!
+        poll = types.Poll(
+            id=random.randint(1, 999999999),
+            question=ticket['question'],
+            answers=poll_answers,
+            public_voters=False,
             multiple_choice=False,
-            quiz=True,
-            countries_iso2=[]
+            quiz=True
         )
 
-        poll_media = types.InputMediaPoll(
-            poll=poll_object,
-            correct_answers=[int(ticket['correct_index'])],
-            solution='Ознакомьтесь с объяснением в комментариях.',
-            solution_entities=[]
+        poll_message = await client.send_message(
+            channel_entity,
+            file=types.InputMediaPoll(
+                poll=poll,
+                correct_answers=[bytes([ticket['correct_index']])],
+                solution="Ознакомьтесь с объяснением в комментариях.",
+                solution_entities=[]
+            )
         )
 
-        # 4. Публикуем нативный опрос-викторину в канал
-        print('Публикуем опрос-викторину...')
-        poll_message = await client.send_message(channel_entity, file=poll_media)
-        print("Опрос отправлен")
-
-        # Даем Telegram время переслать пост в чат обсуждений
-        await asyncio.sleep(4)
-
-        # 5. Текст объяснения (в одну строчку без \n)
-        explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1} — {ticket['explanation']}"
-        text_length = len(explanation_text.encode('utf-16-le')) // 2
-        spoiler_entities = [MessageEntitySpoiler(offset=0, length=text_length)]
+        print(f"Викторина отправлена, господин! ID: {poll_message.id}")
+        await asyncio.sleep(5)
 
         try:
-            full_channel = await client(functions.channels.GetFullChannelRequest(channel=channel_entity))
+            full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
             discussion_chat_id = full_channel.full_chat.linked_chat_id
 
-            if discussion_chat_id:
-                discussion_entity = await client.get_entity(discussion_chat_id)
-                discussion_msg = None
+            if not discussion_chat_id:
+                print("Группа обсуждения не найдена")
+                return False
 
-                async for msg in client.iter_messages(discussion_entity, limit=15):
-                    if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
-                        discussion_msg = msg
-                        break
+            discussion_entity = await client.get_entity(discussion_chat_id)
 
-                if discussion_msg:
-                    await client.send_message(
-                        discussion_entity,
-                        message=explanation_text,
-                        formatting_entities=spoiler_entities,
-                        reply_to=discussion_msg.id
-                    )
-                    print("Объяснение отправлено в комментарии под спойлером!")
-                else:
-                    await client.send_message(channel_entity, message=explanation_text,
-                                              formatting_entities=spoiler_entities, reply_to=poll_message.id)
-                    print("Объяснение отправлено в канал (не нашли пост в чате)")
-            else:
-                await client.send_message(channel_entity, message=explanation_text,
-                                          formatting_entities=spoiler_entities, reply_to=poll_message.id)
-                print("Объяснение отправлено в канал (чат обсуждений не привязан)")
+            discussion_msg = None
+            async for msg in client.iter_messages(discussion_entity, limit=30):
+                if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
+                    discussion_msg = msg
+                    break
+
+            if not discussion_msg:
+                print("Копия опроса не найдена в группе")
+                return False
+
+            explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
+            text_length = len(explanation_text.encode('utf-16-le')) // 2
+            from telethon.types import MessageEntitySpoiler
+
+            spoiler_message = await client.send_message(
+                discussion_entity,
+                message=explanation_text,
+                formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
+                reply_to=discussion_msg.id
+            )
+
+            print(f"Объяснение отправлено в комментарии под спойлером, господин! ID: {spoiler_message.id}")
+
         except Exception as e:
-            print(f"Ошибка отправки комментария: {e}")
-            await client.send_message(channel_entity, message=explanation_text, formatting_entities=spoiler_entities,
-                                      reply_to=poll_message.id)
+            print(f"Ошибка при отправке объяснения: {e}")
+            import traceback
+            traceback.print_exc()
 
-        # 6. Сохранение прогресса
-        parser.save_progress()
-        save_progress_to_github()
         return True
+
+    except BroadcastPublicVotersForbiddenError:
+        print("Ошибка: Для каналов public_voters=False")
+        return False
     except Exception as e:
-        print(f'Ошибка во время выполнения send_quiz: {e}')
-        print(traceback.format_exc())
+        print(f"Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 async def main():
     try:
-        print("Подключаемся к Telegram...")
-        await client.connect()
-        print("Подключено!")
+        print("Подключаюсь к Telegram...")
+
+        await client.start(
+            phone=lambda: input("Введите номер телефона (в формате +7...): "),
+            code_callback=lambda: input("Введите код из Telegram: "),
+            password=lambda: input("Введите пароль двухфакторной аутентификации: ")
+        )
+
+        print("Подключено, господин")
+
+        me = await client.get_me()
+        print(f"Вы вошли как: {me.first_name} (@{me.username})")
+
+        channel = await client.get_entity(CHANNEL_ID)
+        print(f"Канал найден: {channel.title}")
+
         await send_quiz()
         await client.disconnect()
-        print('Отключено')
-    except AuthRestartError:
-        print('Ошибка авторизации. Попробуй еще раз.')
+        print("Отключено, господин")
+
+    except SessionPasswordNeededError:
+        print("Требуется пароль двухфакторной аутентификации")
+        password = input("Введите пароль: ")
+        await client.sign_in(password=password)
     except Exception as e:
-        print(f'Ошибка в функции main: {e}')
+        print(f"Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

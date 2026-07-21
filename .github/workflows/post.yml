@@ -2,8 +2,8 @@ name: PDD Daily Post
 
 on:
   schedule:
-    - cron: '0 7,15 * * *'  # Запуск каждый день в 07:00 и 15:00 UTC
-  workflow_dispatch:        # Возможность запускать кнопкой вручную
+    - cron: '0 5,13 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,11 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Проверяем наличие файла прогресса
       - name: Check if progress exists
         run: |
           if [ -f progress.json ]; then
-            echo "✅ progress.json найден"
+            echo "progress.json найден"
             cat progress.json
           else
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
@@ -31,12 +30,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Устанавливаем Telethon и BeautifulSoup для парсинга
       - name: Install dependencies
         run: |
           pip install telethon requests beautifulsoup4
 
-      # Запускаем публикацию
       - name: Run script
         env:
           API_ID: ${{ secrets.API_ID }}
