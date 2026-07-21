@@ -6,7 +6,8 @@ import json
 import base64
 import requests
 from pyrogram import Client
-from pyrogram.enums import PollType  # ИСПРАВЛЕНО: Добавлен обязательный импорт
+from pyrogram.enums import PollType
+from pyrogram.raw import types  # Обязательно для сборки нативного опроса
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
@@ -45,7 +46,7 @@ def save_progress_to_github():
         content = json.dumps(data, indent=4)
         encoded = base64.b64encode(content.encode()).decode()
 
-        url = f"https://api.github.com/repos/{repo}/contents/progress.json"
+        url = f"https://github.com{repo}/contents/progress.json"
         headers = {
             'Authorization': f'token {token}',
             'Content-Type': 'application/json',
@@ -72,11 +73,10 @@ def save_progress_to_github():
 
         response = requests.put(url, json=payload, headers=headers)
 
-        # ИСПРАВЛЕНО: Восстановлен правильный синтаксис проверки статус-кода
-        if response.status_code in:
+        if response.status_code:
             print("Прогресс сохранён в репозиторий GitHub")
         else:
-            print(f"Ошибка保存 на GitHub: {response.status_code} -> {response.text}")
+            print(f"Ошибка сохранения на GitHub: {response.status_code} -> {response.text}")
 
     except Exception as e:
         print(f"Ошибка сохранения в репозиторий: {e}")
@@ -102,17 +102,43 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        # 2. Отдельно отправляем опрос-викторину (ИСПРАВЛЕНО: убран дубликат строки)
+        # 2. Формируем и отправляем опрос через Raw API (Обход бага Pyrogram)
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
 
-        poll_message = await app.send_poll(
+        answers_objects = []
+        for i, a in enumerate(options):
+            answers_objects.append(
+                types.PollAnswer(
+                    text=types.TextWithEntities(text=a, entities=[]),
+                    option=str(i).encode('utf-8')
+                )
+            )
+
+        poll_id = random.randint(1111111111111111, 9999999999999999)
+
+        poll_object = types.Poll(
+            id=poll_id,
+            hash=poll_id,
+            question=types.TextWithEntities(text=ticket['question'], entities=[]),
+            answers=answers_objects,
+            closed=False,
+            public_voters=False,  # Отключаем публичные голоса для прохождения валидации каналов
+            multiple_choice=False,
+            quiz=True,  # Режим викторины
+            countries_iso2=[]
+        )
+
+        poll_media = types.InputMediaPoll(
+            poll=poll_object,
+            correct_answers=[int(ticket['correct_index'])],
+            solution='Ознакомьтесь с объяснением в комментариях.',
+            solution_entities=[]
+        )
+
+        print("Отправляем викторину через send_raw_media...")
+        poll_message = await app.send_raw_media(
             chat_id=CHANNEL_ID,
-            question=ticket['question'],
-            options=options,
-            is_anonymous=True,
-            type=PollType.QUIZ,
-            correct_option_id=int(ticket['correct_index']),
-            explanation="Ознакомьтесь с объяснением в комментариях."
+            media=poll_media
         )
         print("Викторина отправлена")
 
