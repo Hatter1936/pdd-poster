@@ -68,7 +68,9 @@ def save_progress_to_github():
             payload.pop('sha', None)
 
         response = requests.put(url, json=payload, headers=headers)
-        if response.status_code in:
+
+        # ТО САМОЕ ИСПРАВЛЕНИЕ ТУТ:
+        if response.status_code in [200, 201]:
             print("Прогресс сохранён в репозиторий GitHub")
         else:
             print(f"Ошибка сохранения на GitHub: {response.status_code}")
@@ -95,7 +97,7 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        # 2. Формируем варианты ответов опроса
+        # 2. Formируем варианты ответов опроса
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
         answers_objects = []
         for i, a in enumerate(options):
