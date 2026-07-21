@@ -8,18 +8,26 @@ from pyrogram.errors import BroadcastPublicVotersForbidden, SessionPasswordNeede
 
 try:
     from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
-except ImportError:
-    print("❌ Ошибка: Файл config.py не найден!")
+except ImportError as e:
+    print(f"❌ Ошибка импорта config.py: {e}")
+    sys.exit(1)
+
+# Проверяем конфиг перед запуском
+if not API_ID or not API_HASH or not CHANNEL_ID:
+    print("❌ Критическая ошибка: Неправильные данные в config.py")
+    print(f"API_ID: {API_ID}")
+    print(f"API_HASH: {'***' if API_HASH else '❌'}")
+    print(f"CHANNEL_ID: {CHANNEL_ID}")
     sys.exit(1)
 
 from pdd_parser import PDDParser
 
-# Инициализируем клиента с SESSION_STRING
+# Инициализируем клиента
 app = Client(
     "my_account",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION_STRING  # Используем SESSION_STRING для авторизации
+    session_string=SESSION_STRING if SESSION_STRING else None
 )
 
 
@@ -62,7 +70,7 @@ async def send_quiz():
         # Отправляем картинку
         if image_path and os.path.exists(image_path):
             await app.send_photo(
-                chat_id=CHANNEL_ID,
+                chat_id=CHANNEL_ID,  # CHANNEL_ID теперь строка
                 photo=image_path,
                 caption=f"🚦 Билет {ticket['ticket']}, вопрос {ticket['number']}"
             )
@@ -74,7 +82,7 @@ async def send_quiz():
         print("Отправляем опрос-викторину...")
 
         poll_message = await app.send_poll(
-            chat_id=CHANNEL_ID,
+            chat_id=CHANNEL_ID,  # CHANNEL_ID теперь строка
             question=ticket['question'],
             options=ticket['answers'],
             type="quiz",
@@ -95,7 +103,7 @@ async def send_quiz():
 
         # Отправляем объяснение
         try:
-            chat_full = await app.get_chat(CHANNEL_ID)
+            chat_full = await app.get_chat(CHANNEL_ID)  # CHANNEL_ID теперь строка
 
             if hasattr(chat_full, 'linked_chat') and chat_full.linked_chat:
                 discussion_group_id = chat_full.linked_chat.id
@@ -114,7 +122,7 @@ async def send_quiz():
                 print("⚠️ Группа обсуждения не найдена, отправляем в канал")
                 spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
                 await app.send_message(
-                    chat_id=CHANNEL_ID,
+                    chat_id=CHANNEL_ID,  # CHANNEL_ID теперь строка
                     text=spoiler_text,
                     parse_mode="html",
                     reply_to_message_id=poll_message.id
@@ -125,7 +133,7 @@ async def send_quiz():
             try:
                 spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
                 await app.send_message(
-                    chat_id=CHANNEL_ID,
+                    chat_id=CHANNEL_ID,  # CHANNEL_ID теперь строка
                     text=spoiler_text,
                     parse_mode="html",
                     reply_to_message_id=poll_message.id
@@ -149,8 +157,8 @@ async def main():
     try:
         print("Подключаемся к Telegram...")
 
-        # Пробуем использовать SESSION_STRING
         if SESSION_STRING:
+            print("Используем SESSION_STRING для авторизации")
             await app.start()
         else:
             print("⚠️ SESSION_STRING не найден, пробуем обычную авторизацию")
@@ -161,7 +169,7 @@ async def main():
         me = await app.get_me()
         print(f"Вы вошли как: {me.first_name} (@{me.username})")
 
-        # Проверяем доступ к каналу
+        # Проверяем доступ к каналу (CHANNEL_ID теперь строка)
         try:
             channel = await app.get_chat(CHANNEL_ID)
             print(f"✅ Канал найден: {channel.title}")
