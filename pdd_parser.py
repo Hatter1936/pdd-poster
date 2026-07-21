@@ -4,6 +4,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+
 class PDDParser:
     def __init__(self, progress_file='progress.json'):
         self.progress_file = progress_file

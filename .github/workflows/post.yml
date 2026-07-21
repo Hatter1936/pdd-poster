@@ -41,8 +41,6 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyrogram tgcrypto requests beautifulsoup4 lxml
-          # Устанавливаем selenium и webdriver_manager без chromium
-          pip install selenium webdriver-manager
 
       - name: Run script
         env:
