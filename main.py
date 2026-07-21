@@ -1,9 +1,10 @@
 import asyncio
-import random
-import traceback
 import os
-from pyrogram import Client, types, filters
-from pyrogram.errors import AuthRestartError, BroadcastPublicVotersForbidden
+import requests
+import re
+import json
+from pyrogram import Client
+from pyrogram.errors import BroadcastPublicVotersForbidden
 from config import API_ID, API_HASH, CHANNEL_ID
 from pdd_parser import PDDParser
 
@@ -11,8 +12,7 @@ from pdd_parser import PDDParser
 app = Client(
     "my_account",
     api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=os.environ.get("SESSION_STRING")  # Опционально, для автоматического входа
+    api_hash=API_HASH
 )
 
 
@@ -29,25 +29,23 @@ async def send_quiz():
 
         print(f"Вопрос {ticket['number']} из билета {ticket['ticket']}")
 
-        # Получаем канал
-        channel = await app.get_chat(CHANNEL_ID)
-        print(f"Канал найден: {channel.title}")
-
         # Проверяем, есть ли картинка
         image_path = None
         if ticket.get('image_url'):
-            # Парсим URL картинки и скачиваем её
             image_url = ticket['image_url']
+
+            # Обрабатываем URL
             if image_url.startswith('//'):
                 image_url = 'https:' + image_url
             elif image_url.startswith('/'):
                 image_url = 'https://drom.ru' + image_url
 
             try:
-                import requests
-                response = requests.get(image_url, timeout=10)
+                print(f"Скачиваем картинку: {image_url}")
+                response = requests.get(image_url, timeout=10, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
                 if response.status_code == 200:
-                    # Сохраняем временно
                     temp_image = f"temp_{ticket['number']}.jpg"
                     with open(temp_image, 'wb') as f:
                         f.write(response.content)
@@ -61,46 +59,49 @@ async def send_quiz():
             await app.send_photo(
                 chat_id=CHANNEL_ID,
                 photo=image_path,
-                caption=f"Билет {ticket['ticket']}, вопрос {ticket['number']}"
+                caption=f"🚦 Билет {ticket['ticket']}, вопрос {ticket['number']}"
             )
-            # Удаляем временный файл
             os.remove(image_path)
             print("Картинка отправлена")
+            await asyncio.sleep(1)  # Небольшая пауза между сообщениями
 
-        # Создаем опрос с правильными параметрами
-        print("Отправляем опрос...")
+        # Отправляем опрос с ПРАВИЛЬНЫМИ параметрами
+        print("Отправляем опрос-викторину...")
 
+        # Важно: для каналов эти параметры должны быть такими:
         poll_message = await app.send_poll(
             chat_id=CHANNEL_ID,
             question=ticket['question'],
             options=ticket['answers'],
-            type="quiz",
-            correct_option_id=ticket['correct_index'],
-            explanation="Ознакомьтесь с объяснением в комментариях.",
+            type="quiz",  # Режим викторины
+            correct_option_id=ticket['correct_index'],  # Индекс правильного ответа
+            explanation="ℹ️ Ознакомьтесь с объяснением в комментариях.",  # Текст в лампочке
             explanation_parse_mode="html",
-            is_anonymous=False,  # Для каналов нужно False
-            public_voters=False,  # ВАЖНО: для каналов обязательно False
-            open_period=None,  # Бессрочно
+            is_anonymous=False,  # Должно быть False для каналов
+            public_voters=False,  # КРИТИЧЕСКИ ВАЖНО: False для каналов
+            open_period=None,
             close_date=None,
-            is_closed=False
+            is_closed=False,
+            disable_notification=False
         )
 
-        print(f"Опрос отправлен! ID: {poll_message.id}")
+        print(f"✅ Опрос отправлен! ID: {poll_message.id}")
 
-        # Ожидаем немного для синхронизации
+        # Даем время на синхронизацию с группой комментариев
         await asyncio.sleep(3)
 
-        # Отправляем объяснение в комментарии под спойлером
+        # Отправляем объяснение в комментарии
         try:
-            # Получаем информацию о канале для доступа к комментариям
+            # Получаем информацию о канале
             chat_full = await app.get_chat(CHANNEL_ID)
 
-            if hasattr(chat_full, 'linked_chat_id') and chat_full.linked_chat_id:
-                discussion_group_id = chat_full.linked_chat_id
+            # Проверяем наличие группы комментариев
+            if hasattr(chat_full, 'linked_chat') and chat_full.linked_chat:
+                discussion_group_id = chat_full.linked_chat.id
                 print(f"Группа обсуждения найдена: {discussion_group_id}")
 
-                # Отправляем объяснение как ответ на опрос
-                spoiler_text = f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>"
+                # Отправляем объяснение под спойлером
+                spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
 
                 await app.send_message(
                     chat_id=discussion_group_id,
@@ -108,10 +109,10 @@ async def send_quiz():
                     parse_mode="html",
                     reply_to_message_id=poll_message.id
                 )
-                print("Объяснение отправлено в комментарии под спойлером!")
+                print("✅ Объяснение отправлено в комментарии под спойлером!")
             else:
-                print("Группа обсуждения не найдена, отправляем в канал")
-                spoiler_text = f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>"
+                print("⚠️ Группа обсуждения не найдена, отправляем в канал")
+                spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
                 await app.send_message(
                     chat_id=CHANNEL_ID,
                     text=spoiler_text,
@@ -121,26 +122,27 @@ async def send_quiz():
 
         except Exception as e:
             print(f"Ошибка при отправке комментария: {e}")
-            # Пробуем отправить в канал как ответ
+            # Пробуем отправить как обычное сообщение в канал
             try:
-                spoiler_text = f"<tg-spoiler>{ticket['explanation']}</tg-spoiler>"
+                spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
                 await app.send_message(
                     chat_id=CHANNEL_ID,
                     text=spoiler_text,
                     parse_mode="html",
                     reply_to_message_id=poll_message.id
                 )
-            except:
-                pass
+            except Exception as e2:
+                print(f"Не удалось отправить объяснение: {e2}")
 
         return True
 
     except BroadcastPublicVotersForbidden:
-        print("Ошибка: Опросы с публичными голосами запрещены в каналах")
-        print("Убедитесь, что public_voters=False")
+        print("❌ Ошибка: Опросы с публичными голосами запрещены в каналах")
+        print("Убедитесь, что public_voters=False и is_anonymous=False")
         return False
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"❌ Ошибка: {e}")
+        import traceback
         traceback.print_exc()
         return False
 
@@ -149,15 +151,10 @@ async def main():
     try:
         print("Подключаемся к Telegram...")
 
-        # Если есть SESSION_STRING, используем её
-        session_string = os.environ.get("SESSION_STRING")
-        if session_string:
-            await app.start()
-        else:
-            # Иначе запрашиваем авторизацию
-            await app.start()
+        # Запускаем клиент
+        await app.start()
 
-        print("Подключено!")
+        print("✅ Подключено!")
 
         me = await app.get_me()
         print(f"Вы вошли как: {me.first_name} (@{me.username})")
@@ -170,6 +167,7 @@ async def main():
 
     except Exception as e:
         print(f"Ошибка в main: {e}")
+        import traceback
         traceback.print_exc()
 
 
