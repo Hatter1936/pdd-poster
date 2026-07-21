@@ -1,11 +1,8 @@
 import json
 import os
 import re
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-import time
+import requests
+from bs4 import BeautifulSoup
 
 class PDDParser:
     def __init__(self, progress_file='progress.json'):
@@ -13,34 +10,11 @@ class PDDParser:
         self.base_url = 'https://www.drom.ru/pdd/bilet_{}/training/'
         self.current_ticket = 1
         self.current_question = 1
-        self.driver = None
         self.cached_questions = {}
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
         self.load_progress()
-        self._init_driver()
-
-    def _init_driver(self):
-        options = Options()
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--headless')
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument(
-            'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-
-        try:
-            service = Service('/usr/lib/chromium-browser/chromedriver')
-            self.driver = webdriver.Chrome(service=service, options=options)
-            print("Драйвер Chrome был инициализирован")
-        except:
-            from webdriver_manager.chrome import ChromeDriverManager
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=options)
-            print("Драйвер Chrome инициализирован (локально)")
-
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
     def load_progress(self):
         if os.path.exists(self.progress_file):
@@ -67,7 +41,6 @@ class PDDParser:
                     'current_question': self.current_question
                 }, f, indent=4, ensure_ascii=False)
             print(f"PROGRESS_SAVED: ticket={self.current_ticket}, question={self.current_question}")
-
             with open(os.environ.get('GITHUB_ENV', ''), 'a') as f:
                 f.write(f"LAST_TICKET={self.current_ticket}\n")
                 f.write(f"LAST_QUESTION={self.current_question}\n")
@@ -82,67 +55,65 @@ class PDDParser:
         url = self.base_url.format(ticket_number)
         print(f"Паршу билет №{ticket_number}...")
         try:
-            self.driver.get(url)
-            time.sleep(1)
-            scripts = self.driver.find_elements(By.TAG_NAME, 'script')
-            for script in scripts:
-                outer_html = script.get_attribute('outerHTML')
-                if 'data-drom-module="pdd-exam"' in outer_html:
-                    print("Найден скрипт pdd-exam")
-                    content = script.get_attribute('innerHTML')
+            response = requests.get(url, headers=self.headers, timeout=15)
+            response.raise_for_status()
 
-                    if not content:
-                        print("Содержимое скрипта пусто")
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
+
+            if not script_tag:
+                print(f"Не найден скрипт с данными")
+                return []
+
+            try:
+                data = json.loads(script_tag.string)
+                if 'initialState' in data:
+                    data = data['initialState']
+                questions_data = data.get('questions', [])
+                if not questions_data:
+                    return []
+
+                questions = []
+                for q in questions_data:
+                    answers = []
+                    for answer in q.get('answers', []):
+                        ans_text = answer.get('text', '')
+                        if ans_text:
+                            answers.append(ans_text)
+                    if len(answers) < 2:
                         continue
+                    correct_index = 0
+                    for i, answer in enumerate(q.get('answers', [])):
+                        if answer.get('isCorrect', False):
+                            correct_index = i
+                            break
+                    explanation = q.get('commentTagged', '')
+                    if explanation:
+                        explanation = re.sub(r'<[^>]+>', ' ', explanation)
+                        explanation = re.sub(r'\s+', ' ', explanation).strip()
+                    else:
+                        explanation = "Не нашла объяснение"
+                    questions.append({
+                        'number': q.get('num', 0),
+                        'ticket': ticket_number,
+                        'question': q.get('text', ''),
+                        'answers': answers,
+                        'correct_index': correct_index,
+                        'explanation': explanation,
+                        'image_url': q.get('image', None)
+                    })
 
-                    try:
-                        data = json.loads(content)
-                        if 'initialState' in data:
-                            data = data['initialState']
-                        questions_data = data.get('questions', [])
-                        if not questions_data:
-                            continue
-                        questions = []
-                        for q in questions_data:
-                            answers = []
-                            for answer in q.get('answers', []):
-                                ans_text = answer.get('text', '')
-                                if ans_text:
-                                    answers.append(ans_text)
-                            if len(answers) < 2:
-                                continue
-                            correct_index = 0
-                            for i, answer in enumerate(q.get('answers', [])):
-                                if answer.get('isCorrect', False):
-                                    correct_index = i
-                                    break
-                            explanation = q.get('commentTagged', '')
-                            if explanation:
-                                explanation = re.sub(r'<[^>]+>', ' ', explanation)
-                                explanation = re.sub(r'\s+', ' ', explanation).strip()
-                            else:
-                                explanation = "Не нашла объяснение"
-                            questions.append({
-                                'number': q.get('num', 0),
-                                'ticket': ticket_number,
-                                'question': q.get('text', ''),
-                                'answers': answers,
-                                'correct_index': correct_index,
-                                'explanation': explanation,
-                                'image_url': q.get('image', None)
-                            })
+                if questions:
+                    print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
+                    self.cached_questions[ticket_number] = questions
+                    return questions
+                else:
+                    return []
 
-                        if questions:
-                            print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
-                            self.cached_questions[ticket_number] = questions
-                            return questions
-
-                    except Exception as e:
-                        print(f"Ошибка обработки: {e}")
-                        continue
-
-            print(f"Не нашла вопросы на странице билета {ticket_number}")
-            return []
+            except Exception as e:
+                print(f"Ошибка обработки данных: {e}")
+                return []
 
         except Exception as e:
             print(f"Ошибка при загрузке билета {ticket_number}: {e}")
@@ -181,7 +152,8 @@ class PDDParser:
                     self.save_progress()
                     return result
                 else:
-                    print(f"Вопрос {self.current_question} билета {self.current_ticket} оказался слишком длинный, пропускаем")
+                    print(
+                        f"Вопрос {self.current_question} билета {self.current_ticket} оказался слишком длинный, пропускаем")
                     self.current_question += 1
                     if self.current_question > len(questions):
                         self.current_ticket += 1
@@ -214,6 +186,4 @@ class PDDParser:
         print("Сбросила прогресс на начало")
 
     def close(self):
-        if self.driver:
-            self.driver.quit()
-            print("Драйвер закрыла")
+        pass

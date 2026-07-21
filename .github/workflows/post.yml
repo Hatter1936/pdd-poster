@@ -27,7 +27,7 @@ jobs:
       - name: Check if progress exists
         run: |
           if [ -f progress.json ]; then
-            echo "progress.json найден"
+            echo "✅ progress.json найден"
             cat progress.json
           else
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
@@ -40,9 +40,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyrogram tgcrypto telethon selenium webdriver-manager beautifulsoup4 lxml requests
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver
+          pip install pyrogram tgcrypto requests beautifulsoup4 lxml
+          # Устанавливаем selenium и webdriver_manager без chromium
+          pip install selenium webdriver-manager
 
       - name: Run script
         env:
@@ -53,7 +53,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          export PATH=$PATH:/usr/lib/chromium-browser/
           python main.py
 
       - name: Save progress
