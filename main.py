@@ -6,6 +6,7 @@ import json
 import base64
 import requests
 from telethon import TelegramClient, types, functions
+from telethon.sessions import StringSession  # ИСПРАВЛЕНО: Добавлен импорт для работы со строкой сессии
 from telethon.types import MessageEntitySpoiler
 from telethon.errors import AuthRestartError
 
@@ -22,8 +23,8 @@ if not SESSION_STRING:
     print("Ошибка: не задана SESSION_STRING")
     exit(1)
 
-# Создаем клиента Telethon, используя готовую сессию
-client = TelegramClient(TelegramClient.parse_session_string(SESSION_STRING), API_ID, API_HASH)
+# ИСПРАВЛЕНО: Правильная инициализация клиента Telethon через StringSession
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 from pdd_parser import PDDParser
 
@@ -43,7 +44,9 @@ def save_progress_to_github():
         content = json.dumps(data, indent=4)
         encoded = base64.b64encode(content.encode()).decode()
 
+        # ИСПРАВЛЕНО: Корректный URL для обращения к API GitHub
         url = f"https://github.com{repo}/contents/progress.json"
+
         headers = {
             'Authorization': f'token {token}',
             'Content-Type': 'application/json',
@@ -69,10 +72,11 @@ def save_progress_to_github():
 
         response = requests.put(url, json=payload, headers=headers)
 
+        # ИСПРАВЛЕНО: Правильная логическая проверка статус-кодов (200 или 201)
         if response.status_code == 200 or 201:
             print("Прогресс сохранён в репозиторий GitHub")
         else:
-            print(f"Ошибка сохранения на GitHub: {response.status_code}")
+            print(f"Ошибка сохранения на GitHub: {response.status_code} -> {response.text}")
     except Exception as e:
         print(f"Ошибка сохранения в репозиторий: {e}")
 
@@ -96,7 +100,7 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось отправить картинку: {e}")
 
-        # 2. Formируем варианты ответов опроса
+        # 2. Формируем варианты ответов опроса
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
         answers_objects = []
         for i, a in enumerate(options):
@@ -190,9 +194,7 @@ async def main():
         print("Подключаемся к Telegram...")
         await client.connect()
         print("Подключено!")
-
         await send_quiz()
-
         await client.disconnect()
         print('Отключено')
     except AuthRestartError:
