@@ -80,12 +80,14 @@ async def send_quiz():
                 print(f"Не удалось отправить картинку: {e}")
 
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
+
         poll_message = await app.send_poll(
             CHANNEL_ID,
             question=ticket['question'],
             options=options,
+            is_anonymous=False,
             type="quiz",
-            correct_option_id=ticket['correct_index'],
+            correct_option_id=int(ticket['correct_index']),
             explanation="Ознакомьтесь с объяснением в комментариях."
         )
         print("Викторина отправлена")
