@@ -43,7 +43,6 @@ class PDDParser:
                 }, f, indent=4, ensure_ascii=False)
             print(f"PROGRESS_SAVED: ticket={self.current_ticket}, question={self.current_question}")
 
-            # Запись в GITHUB_ENV происходит только если переменная существует (запуск в GitHub Actions)
             github_env = os.environ.get('GITHUB_ENV')
             if github_env and os.path.exists(github_env):
                 with open(github_env, 'a', encoding='utf-8') as f:
@@ -53,17 +52,19 @@ class PDDParser:
             print(f"Ошибка при сохранении прогресса: {e}")
 
     def parse_ticket(self, ticket_number):
-        """Парсит билет по номеру"""
-        url = f"https://drom.ru_{ticket_number}/training/"
+        if ticket_number in self.cached_questions:
+            return self.cached_questions[ticket_number]
+
+        url = self.base_url.format(ticket_number)
+        print(f"Паршу билет №{ticket_number}...")
         try:
             response = requests.get(url, headers=self.headers, timeout=15)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # Ищем скрипт с данными
             script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
             if not script_tag:
-                print(f"Не найден скрипт с данными в билете {ticket_number}")
+                print(f"Не найден скрипт с данными")
                 return []
 
             try:
@@ -72,36 +73,32 @@ class PDDParser:
                     data = data['initialState']
 
                 questions_data = data.get('questions', [])
-                questions = []
+                if not questions_data:
+                    return []
 
+                questions = []
                 for q in questions_data:
                     answers = []
                     for answer in q.get('answers', []):
-                        if answer.get('text'):
-                            answers.append(answer['text'])
+                        ans_text = answer.get('text', '')
+                        if ans_text:
+                            answers.append(ans_text)
 
                     if len(answers) < 2:
                         continue
 
-                    # Находим правильный ответ
                     correct_index = 0
                     for i, answer in enumerate(q.get('answers', [])):
                         if answer.get('isCorrect', False):
                             correct_index = i
                             break
 
-                    # Получаем изображение
-                    image_url = None
-                    if q.get('image'):
-                        image_url = q['image']['url'] if isinstance(q['image'], dict) else q['image']
-
-                    # Очищаем объяснение от HTML тегов
                     explanation = q.get('commentTagged', '')
                     if explanation:
                         explanation = re.sub(r'<[^>]+>', ' ', explanation)
                         explanation = re.sub(r'\s+', ' ', explanation).strip()
                     else:
-                        explanation = "Объяснение не найдено"
+                        explanation = "Не нашла объяснение"
 
                     questions.append({
                         'number': q.get('num', 0),
@@ -110,19 +107,20 @@ class PDDParser:
                         'answers': answers,
                         'correct_index': correct_index,
                         'explanation': explanation,
-                        'image_url': image_url
+                        'image_url': q.get('image', None)
                     })
 
                 if questions:
                     print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
-                return questions
-
-            except json.JSONDecodeError as e:
-                print(f"Ошибка парсинга JSON: {e}")
+                    self.cached_questions[ticket_number] = questions
+                    return questions
+                else:
+                    return []
+            except Exception as e:
+                print(f"Ошибка обработки данных: {e}")
                 return []
-
         except Exception as e:
-            print(f"Ошибка загрузки билета {ticket_number}: {e}")
+            print(f"Ошибка при загрузке билета {ticket_number}: {e}")
             return []
 
     def get_next_question(self):
@@ -136,7 +134,6 @@ class PDDParser:
 
             questions = self.parse_ticket(self.current_ticket)
             if not questions:
-                print(f"Не смогла получить вопросы из билета {self.current_ticket}, переходим к следующему")
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
@@ -153,8 +150,7 @@ class PDDParser:
                     self.save_progress()
                     return result
                 else:
-                    print(
-                        f"Вопрос {self.current_question} билета {self.current_ticket} превысил лимиты Telegram, пропускаем")
+                    print(f"Вопрос {self.current_question} билета {self.current_ticket} превысил лимиты, пропускаем")
                     self.current_question += 1
                     if self.current_question > len(questions):
                         self.current_ticket += 1
@@ -167,28 +163,14 @@ class PDDParser:
                 self.save_progress()
                 continue
 
-        print("Не нашла подходящих вопросов")
         return None
 
     def check_limits(self, question_data):
-        # Лимиты Telegram для текста опросов (Poll)
         if len(question_data['question']) > 500:
-            print(f"Вопрос оказался слишком длинным: {len(question_data['question'])} символов (макс 500)")
+            print(f"Вопрос слишком длинный: {len(question_data['question'])} симв. (макс 500)")
             return False
-
-        # Текст каждого ответа: макс 100 символов
         for i, answer in enumerate(question_data['answers']):
             if len(answer) > 100:
-                print(f"Ответ {i + 1} оказался слишком длинным: {len(answer)} символов (макс 100)")
+                print(f"Ответ {i + 1} слишком длинный: {len(answer)} симв. (макс 100)")
                 return False
-
         return True
-
-    def reset_progress(self):
-        self.current_ticket = 1
-        self.current_question = 1
-        self.save_progress()
-        print("Сбросила прогресс на начало")
-
-    def close(self):
-        pass
