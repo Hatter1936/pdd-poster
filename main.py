@@ -1,18 +1,25 @@
 import asyncio
 import os
+import sys
 import requests
-import re
 import json
 from pyrogram import Client
-from pyrogram.errors import BroadcastPublicVotersForbidden
-from config import API_ID, API_HASH, CHANNEL_ID
+from pyrogram.errors import BroadcastPublicVotersForbidden, SessionPasswordNeeded
+
+try:
+    from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
+except ImportError:
+    print("❌ Ошибка: Файл config.py не найден!")
+    sys.exit(1)
+
 from pdd_parser import PDDParser
 
-# Инициализируем клиента
+# Инициализируем клиента с SESSION_STRING
 app = Client(
     "my_account",
     api_id=API_ID,
-    api_hash=API_HASH
+    api_hash=API_HASH,
+    session_string=SESSION_STRING  # Используем SESSION_STRING для авторизации
 )
 
 
@@ -20,7 +27,6 @@ async def send_quiz():
     parser = PDDParser()
 
     try:
-        # Получаем следующий вопрос
         ticket = parser.get_next_question()
 
         if not ticket:
@@ -29,12 +35,11 @@ async def send_quiz():
 
         print(f"Вопрос {ticket['number']} из билета {ticket['ticket']}")
 
-        # Проверяем, есть ли картинка
+        # Скачиваем картинку
         image_path = None
         if ticket.get('image_url'):
             image_url = ticket['image_url']
 
-            # Обрабатываем URL
             if image_url.startswith('//'):
                 image_url = 'https:' + image_url
             elif image_url.startswith('/'):
@@ -54,7 +59,7 @@ async def send_quiz():
             except Exception as e:
                 print(f"Не удалось скачать картинку: {e}")
 
-        # Отправляем картинку если есть
+        # Отправляем картинку
         if image_path and os.path.exists(image_path):
             await app.send_photo(
                 chat_id=CHANNEL_ID,
@@ -63,22 +68,21 @@ async def send_quiz():
             )
             os.remove(image_path)
             print("Картинка отправлена")
-            await asyncio.sleep(1)  # Небольшая пауза между сообщениями
+            await asyncio.sleep(1)
 
-        # Отправляем опрос с ПРАВИЛЬНЫМИ параметрами
+        # Отправляем опрос
         print("Отправляем опрос-викторину...")
 
-        # Важно: для каналов эти параметры должны быть такими:
         poll_message = await app.send_poll(
             chat_id=CHANNEL_ID,
             question=ticket['question'],
             options=ticket['answers'],
-            type="quiz",  # Режим викторины
-            correct_option_id=ticket['correct_index'],  # Индекс правильного ответа
-            explanation="ℹ️ Ознакомьтесь с объяснением в комментариях.",  # Текст в лампочке
+            type="quiz",
+            correct_option_id=ticket['correct_index'],
+            explanation="ℹ️ Ознакомьтесь с объяснением в комментариях.",
             explanation_parse_mode="html",
-            is_anonymous=False,  # Должно быть False для каналов
-            public_voters=False,  # КРИТИЧЕСКИ ВАЖНО: False для каналов
+            is_anonymous=False,
+            public_voters=False,
             open_period=None,
             close_date=None,
             is_closed=False,
@@ -87,20 +91,16 @@ async def send_quiz():
 
         print(f"✅ Опрос отправлен! ID: {poll_message.id}")
 
-        # Даем время на синхронизацию с группой комментариев
         await asyncio.sleep(3)
 
-        # Отправляем объяснение в комментарии
+        # Отправляем объяснение
         try:
-            # Получаем информацию о канале
             chat_full = await app.get_chat(CHANNEL_ID)
 
-            # Проверяем наличие группы комментариев
             if hasattr(chat_full, 'linked_chat') and chat_full.linked_chat:
                 discussion_group_id = chat_full.linked_chat.id
                 print(f"Группа обсуждения найдена: {discussion_group_id}")
 
-                # Отправляем объяснение под спойлером
                 spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
 
                 await app.send_message(
@@ -122,7 +122,6 @@ async def send_quiz():
 
         except Exception as e:
             print(f"Ошибка при отправке комментария: {e}")
-            # Пробуем отправить как обычное сообщение в канал
             try:
                 spoiler_text = f"<tg-spoiler><b>📖 Объяснение:</b>\n\n{ticket['explanation']}</tg-spoiler>"
                 await app.send_message(
@@ -138,7 +137,6 @@ async def send_quiz():
 
     except BroadcastPublicVotersForbidden:
         print("❌ Ошибка: Опросы с публичными голосами запрещены в каналах")
-        print("Убедитесь, что public_voters=False и is_anonymous=False")
         return False
     except Exception as e:
         print(f"❌ Ошибка: {e}")
@@ -151,20 +149,33 @@ async def main():
     try:
         print("Подключаемся к Telegram...")
 
-        # Запускаем клиент
-        await app.start()
+        # Пробуем использовать SESSION_STRING
+        if SESSION_STRING:
+            await app.start()
+        else:
+            print("⚠️ SESSION_STRING не найден, пробуем обычную авторизацию")
+            await app.start()
 
         print("✅ Подключено!")
 
         me = await app.get_me()
         print(f"Вы вошли как: {me.first_name} (@{me.username})")
 
-        # Отправляем викторину
-        await send_quiz()
+        # Проверяем доступ к каналу
+        try:
+            channel = await app.get_chat(CHANNEL_ID)
+            print(f"✅ Канал найден: {channel.title}")
+        except Exception as e:
+            print(f"❌ Ошибка доступа к каналу: {e}")
+            return
 
+        await send_quiz()
         await app.stop()
         print("Отключено")
 
+    except SessionPasswordNeeded:
+        print("❌ Требуется пароль двухфакторной аутентификации")
+        print("Создайте SESSION_STRING с паролем или обновите сессию")
     except Exception as e:
         print(f"Ошибка в main: {e}")
         import traceback

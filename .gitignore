@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-config.py
 session_name.session
 *.session
 session.txt
