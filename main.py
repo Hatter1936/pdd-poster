@@ -85,10 +85,10 @@ async def send_quiz():
             CHANNEL_ID,
             question=ticket['question'],
             options=options,
-            is_anonymous=False,
             type="quiz",
             correct_option_id=int(ticket['correct_index']),
-            explanation="Ознакомьтесь с объяснением в комментариях."
+            explanation="Ознакомьтесь с объяснением в комментариях.",
+            is_anonymous=True  # 👈 ОБЯЗАТЕЛЬНО для каналов
         )
         print("Викторина отправлена")
 
