@@ -33,20 +33,14 @@ def save_progress_to_github():
     try:
         token = os.environ.get('GITHUB_TOKEN', '')
         repo = os.environ.get('GITHUB_REPOSITORY', '')
-
         if not token or not repo:
-            print("GITHUB_TOKEN или GITHUB_REPOSITORY не заданы")
             return
-
         with open('progress.json', 'r') as f:
             data = json.load(f)
         content = json.dumps(data, indent=4)
         encoded = base64.b64encode(content.encode()).decode()
         url = f"https://api.github.com/repos/{repo}/contents/progress.json"
-        headers = {
-            'Authorization': f'token {token}',
-            'Content-Type': 'application/json'
-        }
+        headers = {'Authorization': f'token {token}', 'Content-Type': 'application/json'}
         try:
             resp = requests.get(url, headers=headers)
             sha = resp.json().get('sha', '') if resp.status_code == 200 else ''
@@ -59,10 +53,9 @@ def save_progress_to_github():
         }
         response = requests.put(url, json=payload, headers=headers)
         if response.status_code in [200, 201]:
-            print(f"Прогресс сохранён в репозиторий")
+            print("Прогресс сохранён в репозиторий")
         else:
             print(f"Ошибка сохранения: {response.status_code}")
-
     except Exception as e:
         print(f"Ошибка сохранения в репозиторий: {e}")
 
@@ -95,7 +88,7 @@ async def send_quiz():
             correct_option_id=ticket['correct_index'],
             explanation="Ознакомьтесь с объяснением в комментариях."
         )
-        print("Опрос отправлен")
+        print("Викторина отправлена")
 
         await asyncio.sleep(4)
 
@@ -111,7 +104,6 @@ async def send_quiz():
                         break
 
             if discussion_msg:
-                print("Отправляем объяснение под спойлером в комментарии...")
                 await app.send_message(
                     chat_id=discussion_chat_id,
                     text=explanation_text,
@@ -120,13 +112,14 @@ async def send_quiz():
                 print("Объяснение отправлено в комментарии под спойлером!")
             else:
                 await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
-                print("Объяснение отправлено ответом в канал (не нашли пост в чате обсуждений)")
+                print("Объяснение отправлено ответом в канал")
         else:
             await app.send_message(CHANNEL_ID, explanation_text, reply_to_message_id=poll_message.id)
-            print("Объяснение отправлено ответом в канал (чат обсуждений не привязан)")
+            print("Объяснение отправлено ответом в канал")
 
         parser.save_progress()
         save_progress_to_github()
+
         with open('progress.json', 'r') as f:
             data = json.load(f)
         print(f"Прогресс сохранён: билет {data['current_ticket']}, вопрос {data['current_question']}")
@@ -134,7 +127,7 @@ async def send_quiz():
         return True
 
     except Exception as e:
-        print(f'Ошибка во время выполнения send_quiz: {e}')
+        print(f'Ошибка: {e}')
         print(traceback.format_exc())
         return False
 
@@ -148,12 +141,8 @@ async def main():
         me = await app.get_me()
         print(f"Вы вошли как: {me.first_name} (@{me.username})")
 
-        try:
-            chat = await app.get_chat(CHANNEL_ID)
-            print(f"Канал найден: {chat.title}")
-        except Exception as e:
-            print(f"Ошибка: канал не найден - {e}")
-            return
+        chat = await app.get_chat(CHANNEL_ID)
+        print(f"Канал найден: {chat.title}")
 
         await send_quiz()
 
