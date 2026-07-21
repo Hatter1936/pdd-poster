@@ -5,6 +5,7 @@ import json
 import base64
 import requests
 from pyrogram import Client
+from pyrogram.types import Poll
 from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get('API_ID', 0))
@@ -81,14 +82,24 @@ async def send_quiz():
 
         options = [f"{i + 1}. {a}" for i, a in enumerate(ticket['answers'])]
 
-        poll_message = await app.send_poll(
-            CHANNEL_ID,
+        # 👇 ПРАВИЛЬНЫЙ СПОСОБ через Poll объект
+        poll = Poll(
             question=ticket['question'],
             options=options,
             type="quiz",
             correct_option_id=int(ticket['correct_index']),
             explanation="Ознакомьтесь с объяснением в комментариях.",
-            is_anonymous=True  # 👈 ОБЯЗАТЕЛЬНО для каналов
+            is_anonymous=True
+        )
+
+        poll_message = await app.send_poll(
+            chat_id=CHANNEL_ID,
+            question=ticket['question'],
+            options=options,
+            type="quiz",
+            correct_option_id=int(ticket['correct_index']),
+            explanation="Ознакомьтесь с объяснением в комментариях.",
+            is_anonymous=True
         )
         print("Викторина отправлена")
 
