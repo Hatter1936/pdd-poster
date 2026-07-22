@@ -54,15 +54,33 @@ async def send_quiz():
 
         print("Отправляю викторину...")
 
-        # Используем send_poll - он работает во всех версиях
-        poll_message = await client.send_poll(
-            channel_entity,
+        poll_answers = []
+        for i, answer in enumerate(ticket['answers']):
+            numbered_answer = f"{i + 1}. {answer}"
+            poll_answers.append(
+                types.PollAnswer(
+                    text=numbered_answer,
+                    option=bytes([i])
+                )
+            )
+
+        poll = types.Poll(
+            id=random.randint(1, 999999999),
             question=ticket['question'],
-            options=ticket['answers'],
-            quiz=True,
-            correct_option_id=ticket['correct_index'],
-            solution="Ознакомьтесь с объяснением в комментариях.",
-            public_voters=False
+            answers=poll_answers,
+            public_voters=False,
+            multiple_choice=False,
+            quiz=True
+        )
+
+        poll_message = await client.send_message(
+            channel_entity,
+            file=types.InputMediaPoll(
+                poll=poll,
+                correct_answers=[bytes([ticket['correct_index']])],
+                solution="Ознакомьтесь с объяснением в комментариях.",
+                solution_entities=[]
+            )
         )
 
         print(f"Викторина отправлена, господин! ID: {poll_message.id}")
