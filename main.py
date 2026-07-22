@@ -64,7 +64,7 @@ async def send_quiz():
                 )
             )
 
-        # Пробуем отправить с hash
+        # Пробуем создать Poll с hash
         try:
             poll = types.Poll(
                 id=random.randint(1, 999999999),
@@ -75,19 +75,9 @@ async def send_quiz():
                 multiple_choice=False,
                 quiz=True
             )
-            poll_message = await client.send_message(
-                channel_entity,
-                file=types.InputMediaPoll(
-                    poll=poll,
-                    correct_answers=[bytes([ticket['correct_index']])],
-                    solution="Ознакомьтесь с объяснением в комментариях.",
-                    solution_entities=[]
-                )
-            )
-            print("Викторина отправлена с hash")
-
+            print("Использую hash (новая версия Telethon)")
         except TypeError:
-            # Если hash не принимается — отправляем без него
+            # Если hash не принимается — создаём без него
             poll = types.Poll(
                 id=random.randint(1, 999999999),
                 question=ticket['question'],
@@ -96,16 +86,17 @@ async def send_quiz():
                 multiple_choice=False,
                 quiz=True
             )
-            poll_message = await client.send_message(
-                channel_entity,
-                file=types.InputMediaPoll(
-                    poll=poll,
-                    correct_answers=[bytes([ticket['correct_index']])],
-                    solution="Ознакомьтесь с объяснением в комментариях.",
-                    solution_entities=[]
-                )
+            print("Использую без hash (старая версия Telethon)")
+
+        poll_message = await client.send_message(
+            channel_entity,
+            file=types.InputMediaPoll(
+                poll=poll,
+                correct_answers=[bytes([ticket['correct_index']])],
+                solution="Ознакомьтесь с объяснением в комментариях.",
+                solution_entities=[]
             )
-            print("Викторина отправлена без hash")
+        )
 
         print(f"Викторина отправлена, господин! ID: {poll_message.id}")
         await asyncio.sleep(5)
