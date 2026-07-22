@@ -64,7 +64,7 @@ async def send_quiz():
                 )
             )
 
-        # Пробуем создать Poll с hash
+        # Пробуем с hash
         try:
             poll = types.Poll(
                 id=random.randint(1, 999999999),
@@ -75,9 +75,8 @@ async def send_quiz():
                 multiple_choice=False,
                 quiz=True
             )
-            print("Использую hash (новая версия Telethon)")
-        except TypeError:
-            # Если hash не принимается — создаём без него
+            print("Использую hash")
+        except:
             poll = types.Poll(
                 id=random.randint(1, 999999999),
                 question=ticket['question'],
@@ -86,7 +85,7 @@ async def send_quiz():
                 multiple_choice=False,
                 quiz=True
             )
-            print("Использую без hash (старая версия Telethon)")
+            print("Использую без hash")
 
         poll_message = await client.send_message(
             channel_entity,
