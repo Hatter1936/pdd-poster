@@ -4,9 +4,11 @@ import sys
 import random
 from telethon import TelegramClient, types, functions
 from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError
+from telethon.types import MessageEntitySpoiler
+from telethon.sessions import StringSession
 
 try:
-    from config import API_ID, API_HASH, CHANNEL_ID
+    from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
 except ImportError as e:
     print(f"Ошибка импорта config.py: {e}")
     sys.exit(1)
@@ -17,7 +19,10 @@ if not API_ID or not API_HASH or not CHANNEL_ID:
 
 from pdd_parser import PDDParser
 
-client = TelegramClient('pdd_session', API_ID, API_HASH)
+if SESSION_STRING:
+    client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+else:
+    client = TelegramClient('pdd_session', API_ID, API_HASH)
 
 
 async def send_quiz():
@@ -81,44 +86,36 @@ async def send_quiz():
         print(f"Викторина отправлена, господин! ID: {poll_message.id}")
         await asyncio.sleep(5)
 
-        try:
-            full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
-            discussion_chat_id = full_channel.full_chat.linked_chat_id
+        full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
+        discussion_chat_id = full_channel.full_chat.linked_chat_id
 
-            if not discussion_chat_id:
-                print("Группа обсуждения не найдена")
-                return False
+        if not discussion_chat_id:
+            print("Группа обсуждения не найдена")
+            return False
 
-            discussion_entity = await client.get_entity(discussion_chat_id)
+        discussion_entity = await client.get_entity(discussion_chat_id)
 
-            discussion_msg = None
-            async for msg in client.iter_messages(discussion_entity, limit=30):
-                if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
-                    discussion_msg = msg
-                    break
+        discussion_msg = None
+        async for msg in client.iter_messages(discussion_entity, limit=30):
+            if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
+                discussion_msg = msg
+                break
 
-            if not discussion_msg:
-                print("Копия опроса не найдена в группе")
-                return False
+        if not discussion_msg:
+            print("Копия опроса не найдена в группе")
+            return False
 
-            explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-            text_length = len(explanation_text.encode('utf-16-le')) // 2
-            from telethon.types import MessageEntitySpoiler
+        explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
+        text_length = len(explanation_text)
 
-            spoiler_message = await client.send_message(
-                discussion_entity,
-                message=explanation_text,
-                formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
-                reply_to=discussion_msg.id
-            )
+        await client.send_message(
+            discussion_entity,
+            message=explanation_text,
+            formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
+            reply_to=discussion_msg.id
+        )
 
-            print(f"Объяснение отправлено в комментарии под спойлером, господин! ID: {spoiler_message.id}")
-
-        except Exception as e:
-            print(f"Ошибка при отправке объяснения: {e}")
-            import traceback
-            traceback.print_exc()
-
+        print("Объяснение отправлено в комментарии под спойлером, господин")
         return True
 
     except BroadcastPublicVotersForbiddenError:
@@ -135,11 +132,14 @@ async def main():
     try:
         print("Подключаюсь к Telegram...")
 
-        await client.start(
-            phone=lambda: input("Введите номер телефона (в формате +7...): "),
-            code_callback=lambda: input("Введите код из Telegram: "),
-            password=lambda: input("Введите пароль двухфакторной аутентификации: ")
-        )
+        if SESSION_STRING:
+            await client.start()
+        else:
+            await client.start(
+                phone=lambda: input("Введите номер телефона (в формате +7...): "),
+                code_callback=lambda: input("Введите код из Telegram: "),
+                password=lambda: input("Введите пароль двухфакторной аутентификации: ")
+            )
 
         print("Подключено, господин")
 
