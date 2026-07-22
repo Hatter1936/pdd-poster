@@ -64,25 +64,48 @@ async def send_quiz():
                 )
             )
 
-        poll = types.Poll(
-            id=random.randint(1, 999999999),
-            hash=random.randint(1, 999999999),
-            question=ticket['question'],
-            answers=poll_answers,
-            public_voters=False,
-            multiple_choice=False,
-            quiz=True
-        )
-
-        poll_message = await client.send_message(
-            channel_entity,
-            file=types.InputMediaPoll(
-                poll=poll,
-                correct_answers=[bytes([ticket['correct_index']])],
-                solution="Ознакомьтесь с объяснением в комментариях.",
-                solution_entities=[]
+        # Пробуем отправить с hash
+        try:
+            poll = types.Poll(
+                id=random.randint(1, 999999999),
+                hash=random.randint(1, 999999999),
+                question=ticket['question'],
+                answers=poll_answers,
+                public_voters=False,
+                multiple_choice=False,
+                quiz=True
             )
-        )
+            poll_message = await client.send_message(
+                channel_entity,
+                file=types.InputMediaPoll(
+                    poll=poll,
+                    correct_answers=[bytes([ticket['correct_index']])],
+                    solution="Ознакомьтесь с объяснением в комментариях.",
+                    solution_entities=[]
+                )
+            )
+            print("Викторина отправлена с hash")
+
+        except TypeError:
+            # Если hash не принимается — отправляем без него
+            poll = types.Poll(
+                id=random.randint(1, 999999999),
+                question=ticket['question'],
+                answers=poll_answers,
+                public_voters=False,
+                multiple_choice=False,
+                quiz=True
+            )
+            poll_message = await client.send_message(
+                channel_entity,
+                file=types.InputMediaPoll(
+                    poll=poll,
+                    correct_answers=[bytes([ticket['correct_index']])],
+                    solution="Ознакомьтесь с объяснением в комментариях.",
+                    solution_entities=[]
+                )
+            )
+            print("Викторина отправлена без hash")
 
         print(f"Викторина отправлена, господин! ID: {poll_message.id}")
         await asyncio.sleep(5)
