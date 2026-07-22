@@ -32,7 +32,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install telethon requests beautifulsoup4
+          pip install -r requirements.txt  # ← ВОТ ЭТО ГЛАВНОЕ!
+          pip show telethon
 
       - name: Run script
         env:
