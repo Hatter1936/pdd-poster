@@ -4,6 +4,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+
 class PDDParser:
     def __init__(self, progress_file='progress.json'):
         self.progress_file = progress_file
@@ -17,6 +18,7 @@ class PDDParser:
         self.load_progress()
 
     def load_progress(self):
+        # ... (этот метод остается без изменений) ...
         if os.path.exists(self.progress_file):
             try:
                 with open(self.progress_file, 'r', encoding='utf-8') as f:
@@ -34,6 +36,7 @@ class PDDParser:
             self.save_progress()
 
     def save_progress(self):
+        # ... (этот метод остается без изменений) ...
         try:
             with open(self.progress_file, 'w', encoding='utf-8') as f:
                 json.dump({
@@ -81,24 +84,38 @@ class PDDParser:
 
                 questions = []
                 for q in questions_data:
+                    # Получаем сырые ответы
+                    raw_answers = q.get('answers', [])
+                    if len(raw_answers) < 2:
+                        continue
+
+                    # Собираем тексты ответов и сразу очищаем
                     answers = []
-                    for answer in q.get('answers', []):
+                    correct_index = 0
+                    for i, answer in enumerate(raw_answers):
                         ans_text = answer.get('text', '')
                         if ans_text:
+                            # Очищаем ответ
+                            ans_text = re.sub(r'<[^>]+>', '', ans_text)
+                            ans_text = re.sub(r'\s+', ' ', ans_text).strip()
                             answers.append(ans_text)
+
+                            # Проверяем, является ли этот ответ правильным
+                            if answer.get('isCorrect', False):
+                                correct_index = i  # ← Запоминаем индекс
 
                     if len(answers) < 2:
                         continue
 
-                    correct_index = 0
-                    for i, answer in enumerate(q.get('answers', [])):
-                        if answer.get('isCorrect', False):
-                            correct_index = i
-                            break
+                    # Очищаем вопрос
+                    question_text = q.get('text', '')
+                    question_text = re.sub(r'<[^>]+>', '', question_text)
+                    question_text = re.sub(r'\s+', ' ', question_text).strip()
 
+                    # Очищаем объяснение
                     explanation = q.get('commentTagged', '')
                     if explanation:
-                        explanation = re.sub(r'<[^>]+>', ' ', explanation)
+                        explanation = re.sub(r'<[^>]+>', '', explanation)
                         explanation = re.sub(r'\s+', ' ', explanation).strip()
                     else:
                         explanation = "Объяснение не найдено"
@@ -113,9 +130,9 @@ class PDDParser:
                     questions.append({
                         'number': q.get('num', 0),
                         'ticket': ticket_number,
-                        'question': q.get('text', ''),
+                        'question': question_text,
                         'answers': answers,
-                        'correct_index': correct_index,
+                        'correct_index': correct_index,  # ← Исправленный индекс
                         'explanation': explanation,
                         'image_url': image_url
                     })
@@ -134,6 +151,7 @@ class PDDParser:
             return []
 
     def get_next_question(self):
+        # ... (этот метод остается без изменений) ...
         max_tickets = 40
         for attempt in range(max_tickets * 2):
             if self.current_ticket > max_tickets:
@@ -178,6 +196,7 @@ class PDDParser:
         return None
 
     def check_limits(self, question_data):
+        # ... (этот метод остается без изменений) ...
         if len(question_data['question']) > 500:
             print(f"Вопрос слишком длинный: {len(question_data['question'])} символов (максимум 500)")
             return False
@@ -188,6 +207,7 @@ class PDDParser:
         return True
 
     def reset_progress(self):
+        # ... (этот метод остается без изменений) ...
         self.current_ticket = 1
         self.current_question = 1
         self.save_progress()

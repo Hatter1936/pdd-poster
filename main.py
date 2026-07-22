@@ -1,11 +1,11 @@
 import asyncio
-import os
 import sys
 import random
 from telethon import TelegramClient, types, functions
 from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError
-from telethon.types import MessageEntitySpoiler
+from telethon.tl.types import MessageEntitySpoiler
 from telethon.sessions import StringSession
+from pdd_parser import PDDParser
 
 try:
     from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
@@ -14,16 +14,13 @@ except ImportError as e:
     sys.exit(1)
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
-    print("Критическая ошибка: Неправильные данные в config.py")
+    print("Критическая ошибка: Неправильные данные в config.py(нету апи, хэша, айди канала или сессия не найдена)")
     sys.exit(1)
-
-from pdd_parser import PDDParser
 
 if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 else:
     client = TelegramClient('pdd_session', API_ID, API_HASH)
-
 
 async def send_quiz():
     parser = PDDParser()
@@ -59,15 +56,14 @@ async def send_quiz():
             numbered_answer = f"{i + 1}. {answer}"
             poll_answers.append(
                 types.PollAnswer(
-                    text=numbered_answer,  # ← обычная строка
+                    text=numbered_answer,
                     option=bytes([i])
                 )
             )
 
         poll = types.Poll(
             id=random.randint(1, 999999999),
-            hash=random.randint(1, 999999999),
-            question=ticket['question'],  # ← обычная строка
+            question=ticket['question'],
             answers=poll_answers,
             public_voters=False,
             multiple_choice=False,
@@ -128,7 +124,6 @@ async def send_quiz():
         traceback.print_exc()
         return False
 
-
 async def main():
     try:
         print("Подключаюсь к Telegram...")
@@ -162,7 +157,6 @@ async def main():
         print(f"Ошибка: {e}")
         import traceback
         traceback.print_exc()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
