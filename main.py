@@ -66,6 +66,7 @@ async def send_quiz():
 
         poll = types.Poll(
             id=random.randint(1, 999999999),
+            hash=random.randint(1, 999999999),  # ← ДОБАВЛЕН ПАРАМЕТР hash
             question=ticket['question'],
             answers=poll_answers,
             public_voters=False,
