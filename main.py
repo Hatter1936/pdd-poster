@@ -59,7 +59,7 @@ async def send_quiz():
             numbered_answer = f"{i + 1}. {answer}"
             poll_answers.append(
                 types.PollAnswer(
-                    text=types.TextWithEntities(text=numbered_answer, entities=[]),
+                    text=numbered_answer,
                     option=bytes([i])
                 )
             )
@@ -67,7 +67,7 @@ async def send_quiz():
         poll = types.Poll(
             id=random.randint(1, 999999999),
             hash=random.randint(1, 999999999),
-            question=types.TextWithEntities(text=ticket['question'], entities=[]),
+            question=ticket['question'],
             answers=poll_answers,
             public_voters=False,
             multiple_choice=False,
