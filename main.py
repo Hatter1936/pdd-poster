@@ -64,28 +64,15 @@ async def send_quiz():
                 )
             )
 
-        # Пробуем с hash
-        try:
-            poll = types.Poll(
-                id=random.randint(1, 999999999),
-                hash=random.randint(1, 999999999),
-                question=ticket['question'],
-                answers=poll_answers,
-                public_voters=False,
-                multiple_choice=False,
-                quiz=True
-            )
-            print("Использую hash")
-        except:
-            poll = types.Poll(
-                id=random.randint(1, 999999999),
-                question=ticket['question'],
-                answers=poll_answers,
-                public_voters=False,
-                multiple_choice=False,
-                quiz=True
-            )
-            print("Использую без hash")
+        poll = types.Poll(
+            id=random.randint(1, 999999999),
+            hash=random.randint(1, 999999999),
+            question=ticket['question'],
+            answers=poll_answers,
+            public_voters=False,
+            multiple_choice=False,
+            quiz=True
+        )
 
         poll_message = await client.send_message(
             channel_entity,
