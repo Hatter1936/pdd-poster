@@ -16,13 +16,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download previous progress
+        uses: actions/download-artifact@v4
+        with:
+          name: progress
+          path: .
+        continue-on-error: true  # Если артефакта нет - не ошибка
+
       - name: Check if progress exists
         run: |
           if [ -f progress.json ]; then
-            echo "progress.json найден"
+            echo "Прогресс загружен:"
             cat progress.json
           else
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
+            echo "Создан новый прогресс"
           fi
 
       - name: Set up Python
@@ -32,7 +40,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt  # ← ВОТ ЭТО ГЛАВНОЕ!
+          pip install -r requirements.txt
           pip show telethon
 
       - name: Run script
@@ -45,3 +53,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python main.py
+
+      - name: Upload progress
+        if: always()  # Даже если была ошибка, сохраняем прогресс
+        uses: actions/upload-artifact@v4
+        with:
+          name: progress
+          path: progress.json
