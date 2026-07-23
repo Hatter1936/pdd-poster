@@ -1,11 +1,12 @@
 import asyncio
+import os
 import sys
 import random
+import subprocess
 from telethon import TelegramClient, types, functions
 from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError
-from telethon.tl.types import MessageEntitySpoiler
+from telethon.types import MessageEntitySpoiler
 from telethon.sessions import StringSession
-from pdd_parser import PDDParser
 
 try:
     from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
@@ -14,8 +15,10 @@ except ImportError as e:
     sys.exit(1)
 
 if not API_ID or not API_HASH or not CHANNEL_ID:
-    print("Критическая ошибка: Неправильные данные в config.py(нету апи, хэша, айди канала или сессия не найдена)")
+    print("Критическая ошибка: Неправильные данные в config.py")
     sys.exit(1)
+
+from pdd_parser import PDDParser
 
 if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -113,6 +116,26 @@ async def send_quiz():
         )
 
         print("Объяснение отправлено в комментарии под спойлером, господин")
+
+        # === СОХРАНЯЕМ ПРОГРЕСС В РЕПОЗИТОРИЙ ===
+        try:
+            token = os.environ.get('GITHUB_TOKEN')
+            repo = os.environ.get('GITHUB_REPOSITORY')
+            
+            if token and repo:
+                remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+                subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], check=True)
+            
+            subprocess.run(['git', 'config', '--global', 'user.name', 'github-actions'], check=True)
+            subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions@github.com'], check=True)
+            subprocess.run(['git', 'add', 'progress.json'], check=True)
+            subprocess.run(['git', 'commit', '-m', f'Обновлён прогресс: билет {parser.current_ticket}, вопрос {parser.current_question}'], check=True)
+            subprocess.run(['git', 'push'], check=True)
+            print("Прогресс сохранён в репозиторий, господин")
+        except Exception as e:
+            print(f"Не удалось сохранить прогресс: {e}")
+        # ========================================
+
         return True
 
     except BroadcastPublicVotersForbiddenError:
@@ -127,7 +150,7 @@ async def send_quiz():
 async def main():
     try:
         print("Подключаюсь к Telegram...")
-
+        
         if SESSION_STRING:
             await client.start()
         else:
