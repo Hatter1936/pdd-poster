@@ -88,26 +88,29 @@ class PDDParser:
 
                     answers = []
                     correct_index = 0
-                    for i, answer in enumerate(raw_answers):
-                        ans_text = answer.get('text', '')
-                        if ans_text:
-                            ans_text = re.sub(r'<[^>]+>', '', ans_text)
-                            ans_text = re.sub(r'\s+', ' ', ans_text).strip()
-                            answers.append(ans_text)
-
-                            if answer.get('isCorrect', False):
+                    
+                    for i, ans in enumerate(raw_answers):
+                        text = ans.get('text', '')
+                        if text:
+                            text = re.sub(r'<[^>]+>', ' ', text)
+                            text = re.sub(r'\s+', ' ', text).strip()
+                            answers.append(text)
+                            
+                            # Ищем правильный ответ — ВОТ ОСНОВНОЕ ИСПРАВЛЕНИЕ
+                            if ans.get('isCorrect') == True:
                                 correct_index = i
+                                print(f"✅ Найден правильный ответ: [{i}] {text[:50]}...")
 
                     if len(answers) < 2:
                         continue
 
                     question_text = q.get('text', '')
-                    question_text = re.sub(r'<[^>]+>', '', question_text)
+                    question_text = re.sub(r'<[^>]+>', ' ', question_text)
                     question_text = re.sub(r'\s+', ' ', question_text).strip()
 
                     explanation = q.get('commentTagged', '')
                     if explanation:
-                        explanation = re.sub(r'<[^>]+>', '', explanation)
+                        explanation = re.sub(r'<[^>]+>', ' ', explanation)
                         explanation = re.sub(r'\s+', ' ', explanation).strip()
                     else:
                         explanation = "Объяснение не найдено"
@@ -161,15 +164,14 @@ class PDDParser:
 
             if self.current_question <= len(questions):
                 question_data = questions[self.current_question - 1]
-                # Обрезаем длинные поля вместо пропуска
-                self.truncate_long_fields(question_data)
-                result = question_data.copy()
-                self.current_question += 1
-                if self.current_question > len(questions):
-                    self.current_ticket += 1
-                    self.current_question = 1
-                self.save_progress()
-                return result
+                if self.truncate_long_fields(question_data):
+                    result = question_data.copy()
+                    self.current_question += 1
+                    if self.current_question > len(questions):
+                        self.current_ticket += 1
+                        self.current_question = 1
+                    self.save_progress()
+                    return result
             else:
                 self.current_ticket += 1
                 self.current_question = 1
@@ -180,10 +182,9 @@ class PDDParser:
         return None
 
     def truncate_long_fields(self, question_data):
-        """Обрезает слишком длинные поля вместо пропуска"""
+        """Обрезает слишком длинные поля"""
         MAX_QUESTION = 255
         MAX_ANSWER = 100
-        MAX_EXPLANATION = 200
         
         if len(question_data['question']) > MAX_QUESTION:
             question_data['question'] = question_data['question'][:MAX_QUESTION - 3] + '...'
@@ -194,9 +195,7 @@ class PDDParser:
                 question_data['answers'][i] = answer[:MAX_ANSWER - 3] + '...'
                 print(f"✂️ Ответ {i+1} обрезан до {MAX_ANSWER} символов")
         
-        if len(question_data['explanation']) > MAX_EXPLANATION:
-            question_data['explanation'] = question_data['explanation'][:MAX_EXPLANATION - 3] + '...'
-            print(f"✂️ Объяснение обрезано до {MAX_EXPLANATION} символов")
+        return True
 
     def reset_progress(self):
         self.current_ticket = 1
