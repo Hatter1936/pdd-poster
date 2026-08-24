@@ -2,7 +2,7 @@ name: PDD Daily Post
 
 on:
   schedule:
-    - cron: '0 5,13 * * *'
+    - cron: '0 7,15 * * *'
   workflow_dispatch:
 
 permissions:
@@ -15,24 +15,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download previous progress
+      - name: Restore progress
+        id: restore_progress
         uses: actions/download-artifact@v4
         with:
           name: progress
           path: .
-        continue-on-error: true  # Если артефакта нет - не ошибка
+        continue-on-error: true
 
       - name: Check if progress exists
         run: |
           if [ -f progress.json ]; then
-            echo "Прогресс загружен:"
+            echo "✅ progress.json найден"
             cat progress.json
           else
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
-            echo "Создан новый прогресс"
           fi
 
       - name: Set up Python
@@ -42,8 +40,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip show telethon
+          pip install telethon requests beautifulsoup4 lxml
 
       - name: Run script
         env:
@@ -56,8 +53,8 @@ jobs:
         run: |
           python main.py
 
-      - name: Upload progress
-        if: always()  # Даже если была ошибка, сохраняем прогресс
+      - name: Save progress
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: progress
