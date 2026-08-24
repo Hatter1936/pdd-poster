@@ -26,12 +26,14 @@ class PDDParser:
                         data = json.loads(content)
                         self.current_ticket = data.get('current_ticket', 1)
                         self.current_question = data.get('current_question', 1)
-                        print(f"Загружен прогресс: билет {self.current_ticket}, вопрос {self.current_question}")
+                        print(f"📂 Загружен прогресс: билет {self.current_ticket}, вопрос {self.current_question}")
                     else:
                         self.save_progress()
-            except:
+            except Exception as e:
+                print(f"⚠️ Ошибка загрузки прогресса: {e}")
                 self.save_progress()
         else:
+            print("📂 Файл прогресса не найден, создаю новый")
             self.save_progress()
 
     def save_progress(self):
@@ -41,24 +43,18 @@ class PDDParser:
                     'current_ticket': self.current_ticket,
                     'current_question': self.current_question
                 }, f, indent=4, ensure_ascii=False)
-            print(f"Прогресс сохранён: билет {self.current_ticket}, вопрос {self.current_question}")
-
-            github_env = os.environ.get('GITHUB_ENV')
-            if github_env and os.path.exists(github_env):
-                with open(github_env, 'a', encoding='utf-8') as f:
-                    f.write(f"LAST_TICKET={self.current_ticket}\n")
-                    f.write(f"LAST_QUESTION={self.current_question}\n")
+            print(f"💾 Прогресс сохранён: билет {self.current_ticket}, вопрос {self.current_question}")
         except Exception as e:
-            print(f"Ошибка сохранения прогресса: {e}")
+            print(f"⚠️ Ошибка сохранения прогресса: {e}")
 
     def parse_ticket(self, ticket_number):
         if ticket_number in self.cached_questions:
-            print(f"Билет {ticket_number} взят из кэша")
+            print(f"📦 Билет {ticket_number} взят из кэша")
             return self.cached_questions[ticket_number]
 
         url = self.base_url.format(ticket_number)
-        print(f"Парсинг билета {ticket_number}...")
-        print(f"URL: {url}")
+        print(f"🌐 Парсинг билета {ticket_number}...")
+        print(f"   URL: {url}")
 
         try:
             response = requests.get(url, headers=self.headers, timeout=15)
@@ -67,7 +63,7 @@ class PDDParser:
 
             script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
             if not script_tag:
-                print(f"Скрипт с данными не найден в билете {ticket_number}")
+                print(f"⚠️ Скрипт с данными не найден в билете {ticket_number}")
                 return []
 
             try:
@@ -77,7 +73,7 @@ class PDDParser:
 
                 questions_data = data.get('questions', [])
                 if not questions_data:
-                    print(f"В билете {ticket_number} нет вопросов")
+                    print(f"⚠️ В билете {ticket_number} нет вопросов")
                     return []
 
                 questions = []
@@ -96,10 +92,9 @@ class PDDParser:
                             text = re.sub(r'\s+', ' ', text).strip()
                             answers.append(text)
                             
-                            # Ищем правильный ответ — ВОТ ОСНОВНОЕ ИСПРАВЛЕНИЕ
                             if ans.get('isCorrect') == True:
                                 correct_index = i
-                                print(f"✅ Найден правильный ответ: [{i}] {text[:50]}...")
+                                print(f"   ✅ Правильный ответ найден: [{i}] {text[:50]}...")
 
                     if len(answers) < 2:
                         continue
@@ -133,30 +128,32 @@ class PDDParser:
                     })
 
                 if questions:
-                    print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
+                    print(f"✅ Найдено {len(questions)} вопросов в билете {ticket_number}")
                     self.cached_questions[ticket_number] = questions
                     return questions
                 else:
                     return []
+
             except Exception as e:
-                print(f"Ошибка обработки данных билета {ticket_number}: {e}")
+                print(f"⚠️ Ошибка обработки данных билета {ticket_number}: {e}")
                 return []
+
         except Exception as e:
-            print(f"Ошибка загрузки билета {ticket_number}: {e}")
+            print(f"⚠️ Ошибка загрузки билета {ticket_number}: {e}")
             return []
 
     def get_next_question(self):
         max_tickets = 40
         for attempt in range(max_tickets * 2):
             if self.current_ticket > max_tickets:
-                print("Достигнут последний билет. Начинаем с первого.")
+                print("🔄 Достигнут последний билет. Начинаем с первого.")
                 self.current_ticket = 1
                 self.current_question = 1
                 self.save_progress()
 
             questions = self.parse_ticket(self.current_ticket)
             if not questions:
-                print(f"Не удалось получить вопросы из билета {self.current_ticket}, переход к следующему")
+                print(f"⚠️ Не удалось получить вопросы из билета {self.current_ticket}, переход к следующему")
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
@@ -164,44 +161,39 @@ class PDDParser:
 
             if self.current_question <= len(questions):
                 question_data = questions[self.current_question - 1]
-                if self.truncate_long_fields(question_data):
-                    result = question_data.copy()
-                    self.current_question += 1
-                    if self.current_question > len(questions):
-                        self.current_ticket += 1
-                        self.current_question = 1
-                    self.save_progress()
-                    return result
+                
+                # Обрезаем длинные поля
+                MAX_Q = 255
+                MAX_A = 100
+                if len(question_data['question']) > MAX_Q:
+                    question_data['question'] = question_data['question'][:MAX_Q-3] + '...'
+                    print(f"✂️ Вопрос обрезан до {MAX_Q} символов")
+                for i, ans in enumerate(question_data['answers']):
+                    if len(ans) > MAX_A:
+                        question_data['answers'][i] = ans[:MAX_A-3] + '...'
+                        print(f"✂️ Ответ {i+1} обрезан до {MAX_A} символов")
+                
+                result = question_data.copy()
+                self.current_question += 1
+                if self.current_question > len(questions):
+                    self.current_ticket += 1
+                    self.current_question = 1
+                self.save_progress()
+                return result
             else:
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
                 continue
 
-        print("Подходящих вопросов не найдено")
+        print("❌ Подходящих вопросов не найдено")
         return None
-
-    def truncate_long_fields(self, question_data):
-        """Обрезает слишком длинные поля"""
-        MAX_QUESTION = 255
-        MAX_ANSWER = 100
-        
-        if len(question_data['question']) > MAX_QUESTION:
-            question_data['question'] = question_data['question'][:MAX_QUESTION - 3] + '...'
-            print(f"✂️ Вопрос обрезан до {MAX_QUESTION} символов")
-        
-        for i, answer in enumerate(question_data['answers']):
-            if len(answer) > MAX_ANSWER:
-                question_data['answers'][i] = answer[:MAX_ANSWER - 3] + '...'
-                print(f"✂️ Ответ {i+1} обрезан до {MAX_ANSWER} символов")
-        
-        return True
 
     def reset_progress(self):
         self.current_ticket = 1
         self.current_question = 1
         self.save_progress()
-        print("Прогресс сброшен на начало")
+        print("🔄 Прогресс сброшен на начало")
 
     def close(self):
         pass
