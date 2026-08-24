@@ -43,15 +43,11 @@ async def send_quiz():
         print(f"📄 Текст вопроса: {ticket['question'][:150]}...")
         print(f"📊 Количество ответов: {len(ticket['answers'])}")
         print(f"✅ Правильный ответ (индекс): {ticket['correct_index']}")
-        print(f"📖 Длина объяснения: {len(ticket['explanation'])} символов")
         print(f"🖼️ Картинка: {ticket.get('image_url', 'Нет')}")
 
-        # Получаем канал
-        print("\n🔍 Получаю информацию о канале...")
         channel_entity = await client.get_entity(CHANNEL_ID)
         print(f"✅ Канал найден: {channel_entity.title}")
 
-        # Отправляем картинку
         if ticket.get('image_url'):
             image_url = ticket['image_url']
             if image_url.startswith('//'):
@@ -67,10 +63,17 @@ async def send_quiz():
             except Exception as e:
                 print(f"⚠️ Не удалось отправить картинку: {e}")
 
-        # Формируем викторину
+        # Формируем викторину с обрезанными ответами
         print("\n📊 Формирую викторину...")
         poll_answers = []
+        MAX_ANSWER_LENGTH = 100
+
         for i, answer in enumerate(ticket['answers']):
+            # Обрезаем ответ до 100 символов
+            if len(answer) > MAX_ANSWER_LENGTH:
+                answer = answer[:MAX_ANSWER_LENGTH - 3] + '...'
+                print(f"   ✂️ Ответ {i+1} обрезан до {MAX_ANSWER_LENGTH} символов")
+            
             numbered_answer = f"{i + 1}. {answer}"
             poll_answers.append(
                 types.PollAnswer(
@@ -80,13 +83,10 @@ async def send_quiz():
             )
             print(f"   Ответ {i+1}: {numbered_answer[:50]}... (длина: {len(numbered_answer)})")
 
-        # Проверяем длину вопроса
-        question_len = len(ticket['question'])
-        print(f"\n📏 Длина вопроса: {question_len} символов (макс 255)")
-        if question_len > 255:
-            print(f"⚠️ Вопрос слишком длинный! Обрезаю...")
+        # Обрезаем вопрос до 255 символов
+        if len(ticket['question']) > 255:
             ticket['question'] = ticket['question'][:252] + '...'
-            print(f"   Новая длина: {len(ticket['question'])}")
+            print(f"✂️ Вопрос обрезан до 255 символов")
 
         poll = types.Poll(
             id=random.randint(1, 999999999),
@@ -116,7 +116,6 @@ async def send_quiz():
 
         await asyncio.sleep(5)
 
-        # Ищем группу обсуждения
         print("\n🔍 Ищу группу обсуждения...")
         full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
         discussion_chat_id = full_channel.full_chat.linked_chat_id
@@ -130,12 +129,12 @@ async def send_quiz():
                 reply_to=poll_message.id
             )
             print("✅ Объяснение отправлено в канал")
+            parser.save_progress()
             return True
 
         discussion_entity = await client.get_entity(discussion_chat_id)
         print(f"✅ Группа обсуждения найдена: {discussion_entity.title}")
 
-        # Ищем копию опроса в группе
         print("\n🔍 Ищу копию опроса в группе обсуждения...")
         discussion_msg = None
         async for msg in client.iter_messages(discussion_entity, limit=30):
@@ -153,9 +152,9 @@ async def send_quiz():
                 reply_to=poll_message.id
             )
             print("✅ Объяснение отправлено в канал")
+            parser.save_progress()
             return True
 
-        # Отправляем объяснение
         print("\n📤 Отправляю объяснение в комментарии...")
         explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
         text_length = len(explanation_text)
@@ -168,33 +167,8 @@ async def send_quiz():
         )
         print("✅ Объяснение отправлено в комментарии под спойлером!")
 
-        # Сохраняем прогресс
-        print("\n💾 Сохраняю прогресс...")
-        try:
-            parser.save_progress()
-            print("✅ Прогресс сохранён локально")
-        except Exception as e:
-            print(f"⚠️ Не удалось сохранить прогресс локально: {e}")
-
-        # Пытаемся сохранить в репозиторий
-        try:
-            token = os.environ.get('GITHUB_TOKEN')
-            repo = os.environ.get('GITHUB_REPOSITORY')
-            
-            if token and repo:
-                print("📤 Сохраняю прогресс в репозиторий...")
-                remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
-                subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], check=True, capture_output=True)
-                subprocess.run(['git', 'config', '--global', 'user.name', 'github-actions'], check=True)
-                subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions@github.com'], check=True)
-                subprocess.run(['git', 'add', 'progress.json'], check=True, capture_output=True)
-                subprocess.run(['git', 'commit', '-m', f'Обновлён прогресс: билет {parser.current_ticket}, вопрос {parser.current_question}'], check=True, capture_output=True)
-                subprocess.run(['git', 'push'], check=True, capture_output=True)
-                print("✅ Прогресс сохранён в репозиторий")
-            else:
-                print("⚠️ GITHUB_TOKEN не найден, пропускаю сохранение в репозиторий")
-        except Exception as e:
-            print(f"⚠️ Не удалось сохранить прогресс в репозиторий: {e}")
+        parser.save_progress()
+        print("✅ Прогресс сохранён")
 
         print("\n" + "="*60)
         print("🎉 ПОСТ УСПЕШНО ОТПРАВЛЕН!")
@@ -233,7 +207,6 @@ async def main():
 
         me = await client.get_me()
         print(f"👤 Вы вошли как: {me.first_name} (@{me.username})")
-        print(f"   Premium: {me.premium}")
 
         channel = await client.get_entity(CHANNEL_ID)
         print(f"📢 Канал найден: {channel.title}")
