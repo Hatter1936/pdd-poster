@@ -18,7 +18,6 @@ class PDDParser:
         self.load_progress()
 
     def load_progress(self):
-        # ... (этот метод остается без изменений) ...
         if os.path.exists(self.progress_file):
             try:
                 with open(self.progress_file, 'r', encoding='utf-8') as f:
@@ -36,7 +35,6 @@ class PDDParser:
             self.save_progress()
 
     def save_progress(self):
-        # ... (этот метод остается без изменений) ...
         try:
             with open(self.progress_file, 'w', encoding='utf-8') as f:
                 json.dump({
@@ -84,35 +82,29 @@ class PDDParser:
 
                 questions = []
                 for q in questions_data:
-                    # Получаем сырые ответы
                     raw_answers = q.get('answers', [])
                     if len(raw_answers) < 2:
                         continue
 
-                    # Собираем тексты ответов и сразу очищаем
                     answers = []
                     correct_index = 0
                     for i, answer in enumerate(raw_answers):
                         ans_text = answer.get('text', '')
                         if ans_text:
-                            # Очищаем ответ
                             ans_text = re.sub(r'<[^>]+>', '', ans_text)
                             ans_text = re.sub(r'\s+', ' ', ans_text).strip()
                             answers.append(ans_text)
 
-                            # Проверяем, является ли этот ответ правильным
                             if answer.get('isCorrect', False):
-                                correct_index = i  # ← Запоминаем индекс
+                                correct_index = i
 
                     if len(answers) < 2:
                         continue
 
-                    # Очищаем вопрос
                     question_text = q.get('text', '')
                     question_text = re.sub(r'<[^>]+>', '', question_text)
                     question_text = re.sub(r'\s+', ' ', question_text).strip()
 
-                    # Очищаем объяснение
                     explanation = q.get('commentTagged', '')
                     if explanation:
                         explanation = re.sub(r'<[^>]+>', '', explanation)
@@ -132,7 +124,7 @@ class PDDParser:
                         'ticket': ticket_number,
                         'question': question_text,
                         'answers': answers,
-                        'correct_index': correct_index,  # ← Исправленный индекс
+                        'correct_index': correct_index,
                         'explanation': explanation,
                         'image_url': image_url
                     })
@@ -151,7 +143,6 @@ class PDDParser:
             return []
 
     def get_next_question(self):
-        # ... (этот метод остается без изменений) ...
         max_tickets = 40
         for attempt in range(max_tickets * 2):
             if self.current_ticket > max_tickets:
@@ -170,22 +161,15 @@ class PDDParser:
 
             if self.current_question <= len(questions):
                 question_data = questions[self.current_question - 1]
-                if self.check_limits(question_data):
-                    result = question_data.copy()
-                    self.current_question += 1
-                    if self.current_question > len(questions):
-                        self.current_ticket += 1
-                        self.current_question = 1
-                    self.save_progress()
-                    return result
-                else:
-                    print(f"Вопрос {self.current_question} из билета {self.current_ticket} превышает лимиты, пропуск")
-                    self.current_question += 1
-                    if self.current_question > len(questions):
-                        self.current_ticket += 1
-                        self.current_question = 1
-                    self.save_progress()
-                    continue
+                # Обрезаем длинные поля вместо пропуска
+                self.truncate_long_fields(question_data)
+                result = question_data.copy()
+                self.current_question += 1
+                if self.current_question > len(questions):
+                    self.current_ticket += 1
+                    self.current_question = 1
+                self.save_progress()
+                return result
             else:
                 self.current_ticket += 1
                 self.current_question = 1
@@ -195,19 +179,26 @@ class PDDParser:
         print("Подходящих вопросов не найдено")
         return None
 
-    def check_limits(self, question_data):
-        # ... (этот метод остается без изменений) ...
-        if len(question_data['question']) > 500:
-            print(f"Вопрос слишком длинный: {len(question_data['question'])} символов (максимум 500)")
-            return False
+    def truncate_long_fields(self, question_data):
+        """Обрезает слишком длинные поля вместо пропуска"""
+        MAX_QUESTION = 255
+        MAX_ANSWER = 100
+        MAX_EXPLANATION = 200
+        
+        if len(question_data['question']) > MAX_QUESTION:
+            question_data['question'] = question_data['question'][:MAX_QUESTION - 3] + '...'
+            print(f"✂️ Вопрос обрезан до {MAX_QUESTION} символов")
+        
         for i, answer in enumerate(question_data['answers']):
-            if len(answer) > 100:
-                print(f"Ответ {i + 1} слишком длинный: {len(answer)} символов (максимум 100)")
-                return False
-        return True
+            if len(answer) > MAX_ANSWER:
+                question_data['answers'][i] = answer[:MAX_ANSWER - 3] + '...'
+                print(f"✂️ Ответ {i+1} обрезан до {MAX_ANSWER} символов")
+        
+        if len(question_data['explanation']) > MAX_EXPLANATION:
+            question_data['explanation'] = question_data['explanation'][:MAX_EXPLANATION - 3] + '...'
+            print(f"✂️ Объяснение обрезано до {MAX_EXPLANATION} символов")
 
     def reset_progress(self):
-        # ... (этот метод остается без изменений) ...
         self.current_ticket = 1
         self.current_question = 1
         self.save_progress()
