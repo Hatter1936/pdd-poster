@@ -117,7 +117,7 @@ async def send_quiz():
 
         print("Объяснение отправлено в комментарии под спойлером, господин")
 
-        # === СОХРАНЯЕМ ПРОГРЕСС В РЕПОЗИТОРИЙ ===
+        # Сохраняем прогресс в репозиторий
         try:
             token = os.environ.get('GITHUB_TOKEN')
             repo = os.environ.get('GITHUB_REPOSITORY')
@@ -134,7 +134,6 @@ async def send_quiz():
             print("Прогресс сохранён в репозиторий, господин")
         except Exception as e:
             print(f"Не удалось сохранить прогресс: {e}")
-        # ========================================
 
         return True
 
