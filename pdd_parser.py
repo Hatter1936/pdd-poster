@@ -84,14 +84,14 @@ class PDDParser:
 
                     answers = []
                     correct_index = 0
-                    
+
                     for i, ans in enumerate(raw_answers):
                         text = ans.get('text', '')
                         if text:
                             text = re.sub(r'<[^>]+>', ' ', text)
                             text = re.sub(r'\s+', ' ', text).strip()
                             answers.append(text)
-                            
+
                             if ans.get('isCorrect') == True:
                                 correct_index = i
                                 print(f"   ✅ Правильный ответ найден: [{i}] {text[:50]}...")
@@ -161,25 +161,37 @@ class PDDParser:
 
             if self.current_question <= len(questions):
                 question_data = questions[self.current_question - 1]
-                
-                # Обрезаем длинные поля
-                MAX_Q = 255
-                MAX_A = 100
-                if len(question_data['question']) > MAX_Q:
-                    question_data['question'] = question_data['question'][:MAX_Q-3] + '...'
-                    print(f"✂️ Вопрос обрезан до {MAX_Q} символов")
+
+                # === ДОБАВЛЕННОЕ ЛОГИРОВАНИЕ ===
+                print(f"\n🔍 Детальный анализ вопроса {self.current_question} билета {self.current_ticket}:")
+                print(f"   Длина вопроса: {len(question_data['question'])}")
                 for i, ans in enumerate(question_data['answers']):
-                    if len(ans) > MAX_A:
-                        question_data['answers'][i] = ans[:MAX_A-3] + '...'
-                        print(f"✂️ Ответ {i+1} обрезан до {MAX_A} символов")
-                
-                result = question_data.copy()
-                self.current_question += 1
-                if self.current_question > len(questions):
-                    self.current_ticket += 1
-                    self.current_question = 1
-                self.save_progress()
-                return result
+                    print(f"   Длина ответа {i+1}: {len(ans)}")
+                print(f"   Длина объяснения: {len(question_data['explanation'])}")
+
+                # Проверяем лимиты
+                if self.check_limits(question_data):
+                    print("   ✅ Вопрос проходит проверку")
+                else:
+                    print("   ❌ Вопрос НЕ ПРОХОДИТ проверку")
+                # === КОНЕЦ ЛОГИРОВАНИЯ ===
+
+                if self.check_limits(question_data):
+                    result = question_data.copy()
+                    self.current_question += 1
+                    if self.current_question > len(questions):
+                        self.current_ticket += 1
+                        self.current_question = 1
+                    self.save_progress()
+                    return result
+                else:
+                    print(f"⚠️ Вопрос {self.current_question} билета {self.current_ticket} не прошёл проверку, пропускаем")
+                    self.current_question += 1
+                    if self.current_question > len(questions):
+                        self.current_ticket += 1
+                        self.current_question = 1
+                    self.save_progress()
+                    continue
             else:
                 self.current_ticket += 1
                 self.current_question = 1
@@ -188,6 +200,19 @@ class PDDParser:
 
         print("❌ Подходящих вопросов не найдено")
         return None
+
+    def check_limits(self, question_data):
+        """Проверяет, соответствует ли вопрос лимитам Telegram"""
+        if len(question_data['question']) > 255:
+            print(f"   ❌ Вопрос слишком длинный: {len(question_data['question'])} > 255")
+            return False
+
+        for i, answer in enumerate(question_data['answers']):
+            if len(answer) > 100:
+                print(f"   ❌ Ответ {i+1} слишком длинный: {len(answer)} > 100")
+                return False
+
+        return True
 
     def reset_progress(self):
         self.current_ticket = 1
