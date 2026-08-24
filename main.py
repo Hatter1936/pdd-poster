@@ -63,13 +63,12 @@ async def send_quiz():
             except Exception as e:
                 print(f"⚠️ Не удалось отправить картинку: {e}")
 
-        # Формируем викторину с обрезанными ответами
+        # Формируем викторину
         print("\n📊 Формирую викторину...")
         poll_answers = []
         MAX_ANSWER_LENGTH = 100
 
         for i, answer in enumerate(ticket['answers']):
-            # Обрезаем ответ до 100 символов
             if len(answer) > MAX_ANSWER_LENGTH:
                 answer = answer[:MAX_ANSWER_LENGTH - 3] + '...'
                 print(f"   ✂️ Ответ {i+1} обрезан до {MAX_ANSWER_LENGTH} символов")
@@ -83,7 +82,6 @@ async def send_quiz():
             )
             print(f"   Ответ {i+1}: {numbered_answer[:50]}... (длина: {len(numbered_answer)})")
 
-        # Обрезаем вопрос до 255 символов
         if len(ticket['question']) > 255:
             ticket['question'] = ticket['question'][:252] + '...'
             print(f"✂️ Вопрос обрезан до 255 символов")
@@ -130,6 +128,7 @@ async def send_quiz():
             )
             print("✅ Объяснение отправлено в канал")
             parser.save_progress()
+            await save_progress_to_github(parser)
             return True
 
         discussion_entity = await client.get_entity(discussion_chat_id)
@@ -153,6 +152,7 @@ async def send_quiz():
             )
             print("✅ Объяснение отправлено в канал")
             parser.save_progress()
+            await save_progress_to_github(parser)
             return True
 
         print("\n📤 Отправляю объяснение в комментарии...")
@@ -168,7 +168,7 @@ async def send_quiz():
         print("✅ Объяснение отправлено в комментарии под спойлером!")
 
         parser.save_progress()
-        print("✅ Прогресс сохранён")
+        await save_progress_to_github(parser)
 
         print("\n" + "="*60)
         print("🎉 ПОСТ УСПЕШНО ОТПРАВЛЕН!")
@@ -182,6 +182,29 @@ async def send_quiz():
         print(f"❌ Ошибка: {e}")
         traceback.print_exc()
         return False
+
+
+async def save_progress_to_github(parser):
+    """Сохраняет прогресс в репозиторий"""
+    try:
+        token = os.environ.get('GITHUB_TOKEN')
+        repo = os.environ.get('GITHUB_REPOSITORY')
+        
+        if not token or not repo:
+            print("⚠️ GITHUB_TOKEN не найден, пропускаю сохранение в репозиторий")
+            return
+        
+        print("📤 Сохраняю прогресс в репозиторий...")
+        remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+        subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], check=True, capture_output=True)
+        subprocess.run(['git', 'config', '--global', 'user.name', 'github-actions'], check=True, capture_output=True)
+        subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions@github.com'], check=True, capture_output=True)
+        subprocess.run(['git', 'add', 'progress.json'], check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', f'Обновлён прогресс: билет {parser.current_ticket}, вопрос {parser.current_question}'], check=True, capture_output=True)
+        subprocess.run(['git', 'push'], check=True, capture_output=True)
+        print("✅ Прогресс сохранён в репозиторий")
+    except Exception as e:
+        print(f"⚠️ Не удалось сохранить прогресс в репозиторий: {e}")
 
 
 async def main():
