@@ -26,6 +26,7 @@ if SESSION_STRING:
 else:
     client = TelegramClient('pdd_session', API_ID, API_HASH)
 
+
 async def send_quiz():
     parser = PDDParser()
     try:
@@ -67,6 +68,7 @@ async def send_quiz():
         MAX_ANSWER_LENGTH = 100
 
         for i, answer in enumerate(ticket['answers']):
+            # Обрезаем ответ до 100 символов, если нужно
             if len(answer) > MAX_ANSWER_LENGTH:
                 answer = answer[:MAX_ANSWER_LENGTH - 3] + '...'
                 print(f"   ✂️ Ответ {i+1} обрезан до {MAX_ANSWER_LENGTH} символов")
@@ -80,14 +82,15 @@ async def send_quiz():
             )
             print(f"   Ответ {i+1}: {numbered_answer[:50]}... (длина: {len(numbered_answer)})")
 
+        # Обрезаем вопрос до 255 символов
         if len(ticket['question']) > 255:
             ticket['question'] = ticket['question'][:252] + '...'
             print(f"✂️ Вопрос обрезан до 255 символов")
 
+        # Создаём опрос БЕЗ hash
         poll_id = random.randint(1, 999999999)
         poll = types.Poll(
             id=poll_id,
-            hash=poll_id,
             question=ticket['question'],
             answers=poll_answers,
             public_voters=False,
@@ -181,6 +184,7 @@ async def send_quiz():
         print(f"❌ Ошибка: {e}")
         traceback.print_exc()
         return False
+
 
 async def main():
     try:
