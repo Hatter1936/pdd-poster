@@ -16,6 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 👇 ОЧИЩАЕМ КЕШ ПЕРЕД УСТАНОВКОЙ
+      - name: Clear pip cache
+        run: |
+          pip cache purge
+          rm -rf ~/.cache/pip
+
       - name: Restore progress
         id: restore_progress
         uses: actions/download-artifact@v4
@@ -40,7 +46,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install telethon requests beautifulsoup4 lxml
+          pip install --no-cache-dir telethon==1.28.5 requests beautifulsoup4 lxml
 
       - name: Run script
         env:
