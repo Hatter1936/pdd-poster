@@ -16,7 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 👇 ОЧИЩАЕМ КЕШ ПЕРЕД УСТАНОВКОЙ
       - name: Clear pip cache
         run: |
           pip cache purge
@@ -33,7 +32,7 @@ jobs:
       - name: Check if progress exists
         run: |
           if [ -f progress.json ]; then
-            echo "✅ progress.json найден"
+            echo "progress.json найден"
             cat progress.json
           else
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
