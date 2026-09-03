@@ -3,278 +3,216 @@ import os
 import sys
 import random
 import subprocess
+import traceback
 from telethon import TelegramClient, types, functions
-from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError, RPCError
+from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError, RPCError, FloodWaitError
 from telethon.types import MessageEntitySpoiler
 from telethon.sessions import StringSession
-import traceback
-import time
+from pdd_parser import PDDParser
 
 try:
     from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
-except ImportError as e:
-    print(f"❌ Ошибка импорта config.py: {e}")
+except ImportError:
+    print("config.py not found")
     sys.exit(1)
 
-if not API_ID or not API_HASH or not CHANNEL_ID:
-    print("❌ Критическая ошибка: Неправильные данные в config.py")
+if not all([API_ID, API_HASH, CHANNEL_ID]):
+    print("Invalid config data")
     sys.exit(1)
-
-from pdd_parser import PDDParser
 
 if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 else:
     client = TelegramClient('pdd_session', API_ID, API_HASH)
 
-
-async def send_file_with_retry(entity, file_path, max_retries=3, delay=3):
-    """Отправляет файл с повторными попытками"""
+async def send_file_with_retry(entity, file_path, max_retries=3, delay=5):
     for attempt in range(max_retries):
         try:
             result = await client.send_file(entity, file=file_path)
-            print(f"   ✅ Картинка отправлена (попытка {attempt + 1})")
             return result
         except Exception as e:
-            print(f"   ⚠️ Ошибка отправки картинки (попытка {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                print(f"   ⏳ Повтор через {delay} секунд...")
-                await asyncio.sleep(delay)
-            else:
-                print(f"   ❌ Не удалось отправить картинку после {max_retries} попыток")
-                raise  # Если все попытки не удались, поднимаем ошибку
-
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(delay)
+    return None
 
 async def save_progress_to_github(parser):
-    """Сохраняет прогресс в репозиторий через git"""
     try:
         token = os.environ.get('GITHUB_TOKEN')
         repo = os.environ.get('GITHUB_REPOSITORY')
-        
         if not token or not repo:
-            print("⚠️ GITHUB_TOKEN или GITHUB_REPOSITORY не найдены, пропускаю сохранение в репозиторий")
             return
-        
-        print("📤 Сохраняю прогресс в репозиторий...")
         remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
         subprocess.run(['git', 'remote', 'set-url', 'origin', remote_url], check=True, capture_output=True)
         subprocess.run(['git', 'config', '--global', 'user.name', 'github-actions'], check=True, capture_output=True)
         subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions@github.com'], check=True, capture_output=True)
         subprocess.run(['git', 'add', 'progress.json'], check=True, capture_output=True)
-        subprocess.run(['git', 'commit', '-m', f'Обновлён прогресс: билет {parser.current_ticket}, вопрос {parser.current_question}'], check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', f'Progress update'], check=True, capture_output=True)
         subprocess.run(['git', 'push'], check=True, capture_output=True)
-        print("✅ Прогресс сохранён в репозиторий")
-    except Exception as e:
-        print(f"⚠️ Не удалось сохранить прогресс в репозиторий: {e}")
-
+    except Exception:
+        pass
 
 async def send_quiz():
     parser = PDDParser()
-    try:
-        print("\n" + "="*60)
-        print("📌 НАЧАЛО ОТПРАВКИ ПОСТА")
-        print("="*60)
-        
-        ticket = parser.get_next_question()
-        if not ticket:
-            print("❌ Нет вопросов для публикации, господин")
-            return False
+    max_attempts = 40
+    
+    for attempt in range(max_attempts):
+        try:
+            ticket = parser.get_next_question()
+            if not ticket:
+                return False
 
-        print(f"\n📝 Вопрос {ticket['number']} из билета {ticket['ticket']}")
-        print(f"📄 Текст вопроса: {ticket['question'][:150]}...")
-        print(f"📊 Количество ответов: {len(ticket['answers'])}")
-        print(f"✅ Правильный ответ (индекс): {ticket['correct_index']}")
-        print(f"🖼️ Картинка: {ticket.get('image_url', 'Нет')}")
+            channel_entity = await client.get_entity(CHANNEL_ID)
 
-        channel_entity = await client.get_entity(CHANNEL_ID)
-        print(f"✅ Канал найден: {channel_entity.title}")
+            image_sent = False
+            if ticket.get('image_url'):
+                image_url = ticket['image_url']
+                if image_url.startswith('//'):
+                    image_url = 'https:' + image_url
+                elif image_url.startswith('/'):
+                    image_url = 'https://drom.ru' + image_url
+                try:
+                    await send_file_with_retry(channel_entity, image_url)
+                    image_sent = True
+                    await asyncio.sleep(2)
+                except Exception:
+                    pass
 
-        # Обработка картинки с повторными попытками
-        image_sent = False
-        if ticket.get('image_url'):
-            image_url = ticket['image_url']
-            if image_url.startswith('//'):
-                image_url = 'https:' + image_url
-            elif image_url.startswith('/'):
-                image_url = 'https://drom.ru' + image_url
+            poll_answers = []
+            MAX_ANSWER_LENGTH = 100
 
-            print(f"\n🖼️ Попытка отправки картинки (до 3 попыток)...")
+            for i, answer in enumerate(ticket['answers']):
+                if len(answer) > MAX_ANSWER_LENGTH:
+                    answer = answer[:MAX_ANSWER_LENGTH - 3] + '...'
+                numbered_answer = f"{i + 1}. {answer}"
+                if len(numbered_answer.encode('utf-8')) > 100:
+                    numbered_answer = numbered_answer[:90] + '...'
+                option = i.to_bytes(1, 'big') if i < 256 else b'\xff'
+                poll_answers.append(
+                    types.PollAnswer(
+                        text=numbered_answer,
+                        option=option
+                    )
+                )
+
+            if len(ticket['question']) > 255:
+                ticket['question'] = ticket['question'][:252] + '...'
+
+            poll_id = random.randint(1, 999999999)
+            poll = types.Poll(
+                id=poll_id,
+                question=ticket['question'],
+                answers=poll_answers,
+                public_voters=False,
+                multiple_choice=False,
+                quiz=True
+            )
+
+            correct_index = ticket['correct_index']
+            if correct_index > 255:
+                correct_bytes = b'\xff'
+            else:
+                correct_bytes = bytes([correct_index])
+
             try:
-                await send_file_with_retry(channel_entity, image_url, max_retries=3, delay=5)
-                image_sent = True
-                await asyncio.sleep(2)
-            except Exception as e:
-                print(f"❌ Не удалось отправить картинку после 3 попыток: {e}")
-                print("🔄 Переход к следующему вопросу...")
+                poll_message = await client.send_message(
+                    channel_entity,
+                    file=types.InputMediaPoll(
+                        poll=poll,
+                        correct_answers=[correct_bytes],
+                        solution="Explanation in comments.",
+                        solution_entities=[]
+                    )
+                )
+            except FloodWaitError as e:
+                await asyncio.sleep(e.seconds)
+                continue
+            except RPCError:
                 parser.save_progress()
                 await save_progress_to_github(parser)
-                return await send_quiz()  # Переходим к следующему вопросу
+                continue
 
-        # Формируем викторину
-        print("\n📊 Формирую викторину...")
-        poll_answers = []
-        MAX_ANSWER_LENGTH = 100
+            await asyncio.sleep(3)
 
-        for i, answer in enumerate(ticket['answers']):
-            if len(answer) > MAX_ANSWER_LENGTH:
-                answer = answer[:MAX_ANSWER_LENGTH - 3] + '...'
-                print(f"   ✂️ Ответ {i+1} обрезан до {MAX_ANSWER_LENGTH} символов")
-            
-            numbered_answer = f"{i + 1}. {answer}"
-            poll_answers.append(
-                types.PollAnswer(
-                    text=numbered_answer,
-                    option=bytes([i])
+            full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
+            discussion_chat_id = full_channel.full_chat.linked_chat_id
+
+            if not discussion_chat_id:
+                explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
+                await client.send_message(
+                    channel_entity,
+                    message=explanation_text,
+                    reply_to=poll_message.id
                 )
-            )
-            print(f"   Ответ {i+1}: {numbered_answer[:50]}... (длина: {len(numbered_answer)})")
+                parser.save_progress()
+                await save_progress_to_github(parser)
+                return True
 
-        if len(ticket['question']) > 255:
-            ticket['question'] = ticket['question'][:252] + '...'
-            print(f"✂️ Вопрос обрезан до 255 символов")
+            discussion_entity = await client.get_entity(discussion_chat_id)
 
-        poll_id = random.randint(1, 999999999)
-        poll = types.Poll(
-            id=poll_id,
-            question=ticket['question'],
-            answers=poll_answers,
-            public_voters=False,
-            multiple_choice=False,
-            quiz=True
-        )
+            discussion_msg = None
+            async for msg in client.iter_messages(discussion_entity, limit=100):
+                if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
+                    discussion_msg = msg
+                    break
 
-        print("\n📤 Отправляю викторину в канал...")
-        try:
-            poll_message = await client.send_message(
-                channel_entity,
-                file=types.InputMediaPoll(
-                    poll=poll,
-                    correct_answers=[bytes([ticket['correct_index']])],
-                    solution="Ознакомьтесь с объяснением в комментариях.",
-                    solution_entities=[]
+            if not discussion_msg:
+                explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
+                await client.send_message(
+                    channel_entity,
+                    message=explanation_text,
+                    reply_to=poll_message.id
                 )
-            )
-            print(f"✅ Викторина отправлена! ID: {poll_message.id}")
-        except RPCError as e:
-            print(f"❌ Ошибка при отправке викторины: {e}")
-            print("🔄 Переход к следующему вопросу...")
-            parser.save_progress()
-            await save_progress_to_github(parser)
-            return await send_quiz()
+                parser.save_progress()
+                await save_progress_to_github(parser)
+                return True
 
-        await asyncio.sleep(5)
+            explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
+            text_length = len(explanation_text)
 
-        # Поиск группы обсуждения и отправка объяснения
-        print("\n🔍 Ищу группу обсуждения...")
-        full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
-        discussion_chat_id = full_channel.full_chat.linked_chat_id
-
-        if not discussion_chat_id:
-            print("⚠️ Группа обсуждения не найдена, отправляю объяснение в канал")
-            explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
             await client.send_message(
-                channel_entity,
+                discussion_entity,
                 message=explanation_text,
-                reply_to=poll_message.id
+                formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
+                reply_to=discussion_msg.id
             )
-            print("✅ Объяснение отправлено в канал")
+
             parser.save_progress()
             await save_progress_to_github(parser)
             return True
 
-        discussion_entity = await client.get_entity(discussion_chat_id)
-        print(f"✅ Группа обсуждения найдена: {discussion_entity.title}")
-
-        print("\n🔍 Ищу копию опроса в группе обсуждения...")
-        discussion_msg = None
-        async for msg in client.iter_messages(discussion_entity, limit=30):
-            if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
-                discussion_msg = msg
-                print(f"✅ Найдена копия опроса! ID: {msg.id}")
-                break
-
-        if not discussion_msg:
-            print("⚠️ Копия опроса не найдена в группе, отправляю в канал")
-            explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-            await client.send_message(
-                channel_entity,
-                message=explanation_text,
-                reply_to=poll_message.id
-            )
-            print("✅ Объяснение отправлено в канал")
+        except BroadcastPublicVotersForbiddenError:
+            return False
+        except Exception:
+            traceback.print_exc()
             parser.save_progress()
             await save_progress_to_github(parser)
-            return True
-
-        print("\n📤 Отправляю объяснение в комментарии...")
-        explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-        text_length = len(explanation_text)
-
-        await client.send_message(
-            discussion_entity,
-            message=explanation_text,
-            formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
-            reply_to=discussion_msg.id
-        )
-        print("✅ Объяснение отправлено в комментарии под спойлером!")
-
-        parser.save_progress()
-        await save_progress_to_github(parser)
-        print("✅ Прогресс сохранён")
-
-        print("\n" + "="*60)
-        print("🎉 ПОСТ УСПЕШНО ОТПРАВЛЕН!")
-        print("="*60)
-        return True
-
-    except BroadcastPublicVotersForbiddenError:
-        print("❌ Ошибка: Для каналов public_voters=False")
-        return False
-    except Exception as e:
-        print(f"❌ Ошибка: {e}")
-        traceback.print_exc()
-        return False
-
+            continue
+    
+    return False
 
 async def main():
     try:
-        print("\n" + "="*60)
-        print("🚀 ЗАПУСК БОТА")
-        print("="*60)
-        
-        print("\n🔌 Подключаюсь к Telegram...")
-        
         if SESSION_STRING:
-            print("   Использую строку сессии")
             await client.start()
         else:
-            print("   Использую файл сессии (требуется ввод)")
             await client.start(
-                phone=lambda: input("📱 Введите номер телефона (в формате +7...): "),
-                code_callback=lambda: input("🔑 Введите код из Telegram: "),
-                password=lambda: input("🔒 Введите пароль двухфакторной аутентификации: ")
+                phone=lambda: input("Enter phone number: "),
+                code_callback=lambda: input("Enter code: "),
+                password=lambda: input("Enter 2FA password: ")
             )
 
-        print("✅ Подключено к Telegram!")
-
         me = await client.get_me()
-        print(f"👤 Вы вошли как: {me.first_name} (@{me.username})")
-
         channel = await client.get_entity(CHANNEL_ID)
-        print(f"📢 Канал найден: {channel.title}")
 
         await send_quiz()
-        
         await client.disconnect()
-        print("\n🔌 Отключено от Telegram")
-        print("="*60)
 
     except SessionPasswordNeededError:
-        print("🔒 Требуется пароль двухфакторной аутентификации")
-        password = input("Введите пароль: ")
+        password = input("Enter 2FA password: ")
         await client.sign_in(password=password)
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"Error: {e}")
         traceback.print_exc()
 
 if __name__ == "__main__":
