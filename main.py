@@ -8,6 +8,7 @@ from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPassword
 from telethon.types import MessageEntitySpoiler
 from telethon.sessions import StringSession
 import traceback
+import time
 
 try:
     from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
@@ -25,6 +26,23 @@ if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 else:
     client = TelegramClient('pdd_session', API_ID, API_HASH)
+
+
+async def send_file_with_retry(entity, file_path, max_retries=3, delay=3):
+    """Отправляет файл с повторными попытками"""
+    for attempt in range(max_retries):
+        try:
+            result = await client.send_file(entity, file=file_path)
+            print(f"   ✅ Картинка отправлена (попытка {attempt + 1})")
+            return result
+        except Exception as e:
+            print(f"   ⚠️ Ошибка отправки картинки (попытка {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print(f"   ⏳ Повтор через {delay} секунд...")
+                await asyncio.sleep(delay)
+            else:
+                print(f"   ❌ Не удалось отправить картинку после {max_retries} попыток")
+                raise  # Если все попытки не удались, поднимаем ошибку
 
 
 async def save_progress_to_github(parser):
@@ -71,6 +89,8 @@ async def send_quiz():
         channel_entity = await client.get_entity(CHANNEL_ID)
         print(f"✅ Канал найден: {channel_entity.title}")
 
+        # Обработка картинки с повторными попытками
+        image_sent = False
         if ticket.get('image_url'):
             image_url = ticket['image_url']
             if image_url.startswith('//'):
@@ -78,14 +98,19 @@ async def send_quiz():
             elif image_url.startswith('/'):
                 image_url = 'https://drom.ru' + image_url
 
+            print(f"\n🖼️ Попытка отправки картинки (до 3 попыток)...")
             try:
-                print(f"\n🖼️ Отправляю картинку: {image_url}")
-                await client.send_file(channel_entity, file=image_url)
-                print("✅ Картинка отправлена")
+                await send_file_with_retry(channel_entity, image_url, max_retries=3, delay=5)
+                image_sent = True
                 await asyncio.sleep(2)
             except Exception as e:
-                print(f"⚠️ Не удалось отправить картинку: {e}")
+                print(f"❌ Не удалось отправить картинку после 3 попыток: {e}")
+                print("🔄 Переход к следующему вопросу...")
+                parser.save_progress()
+                await save_progress_to_github(parser)
+                return await send_quiz()  # Переходим к следующему вопросу
 
+        # Формируем викторину
         print("\n📊 Формирую викторину...")
         poll_answers = []
         MAX_ANSWER_LENGTH = 100
@@ -139,6 +164,7 @@ async def send_quiz():
 
         await asyncio.sleep(5)
 
+        # Поиск группы обсуждения и отправка объяснения
         print("\n🔍 Ищу группу обсуждения...")
         full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
         discussion_chat_id = full_channel.full_chat.linked_chat_id
