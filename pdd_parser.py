@@ -29,12 +29,12 @@ class PDDParser:
                         data = json.loads(content)
                         self.current_ticket = data.get('current_ticket', 1)
                         self.current_question = data.get('current_question', 1)
-                        print(f"Loaded progress: ticket {self.current_ticket}, question {self.current_question}")
+                        print(f"Загружен прогресс: билет {self.current_ticket}, вопрос {self.current_question}")
             except Exception as e:
-                print(f"Load progress failed: {e}")
+                print(f"Ошибка загрузки прогресса: {e}")
                 self.save_progress()
         else:
-            print("No progress file, starting from beginning")
+            print("Файл прогресса не найден, начинаем с начала")
             self.save_progress()
 
     def save_progress(self):
@@ -44,16 +44,16 @@ class PDDParser:
                     'current_ticket': self.current_ticket,
                     'current_question': self.current_question
                 }, f, indent=4, ensure_ascii=False)
-            print(f"Saved progress: ticket {self.current_ticket}, question {self.current_question}")
+            print(f"Сохранён прогресс: билет {self.current_ticket}, вопрос {self.current_question}")
         except Exception as e:
-            print(f"Save progress failed: {e}")
+            print(f"Ошибка сохранения прогресса: {e}")
 
     def parse_ticket(self, ticket_number):
         if ticket_number in self.cached_questions:
             return self.cached_questions[ticket_number]
 
         url = self.base_url.format(ticket_number)
-        print(f"Parsing ticket {ticket_number}")
+        print(f"Парсинг билета {ticket_number}")
 
         try:
             response = self.session.get(url, timeout=20)
@@ -64,7 +64,7 @@ class PDDParser:
             if not script_tag:
                 script_tag = soup.find('script', text=re.compile(r'initialState'))
                 if not script_tag:
-                    print(f"No script found for ticket {ticket_number}")
+                    print(f"Скрипт не найден в билете {ticket_number}")
                     return []
 
             script_content = script_tag.string
@@ -77,7 +77,7 @@ class PDDParser:
 
             questions_data = data.get('questions', [])
             if not questions_data:
-                print(f"No questions in ticket {ticket_number}")
+                print(f"Нет вопросов в билете {ticket_number}")
                 return []
 
             questions = []
@@ -114,19 +114,23 @@ class PDDParser:
                     explanation = re.sub(r'<[^>]+>', ' ', explanation)
                     explanation = re.sub(r'\s+', ' ', explanation).strip()
                 else:
-                    explanation = "No explanation available"
+                    explanation = "Объяснение не найдено"
 
                 image_url = None
                 if q.get('image'):
                     if isinstance(q['image'], dict):
                         image_url = q['image'].get('url')
-                    else:
+                    elif isinstance(q['image'], str):
                         image_url = q['image']
-                    if image_url and not image_url.startswith('http'):
+                    
+                    if image_url:
                         if image_url.startswith('//'):
                             image_url = 'https:' + image_url
                         elif image_url.startswith('/'):
                             image_url = 'https://drom.ru' + image_url
+                        elif not image_url.startswith('http'):
+                            image_url = 'https://drom.ru' + image_url
+                        print(f"Найдена картинка: {image_url}")
 
                 questions.append({
                     'number': q.get('num', 0),
@@ -140,12 +144,12 @@ class PDDParser:
 
             if questions:
                 self.cached_questions[ticket_number] = questions
-                print(f"Parsed {len(questions)} questions from ticket {ticket_number}")
+                print(f"Найдено {len(questions)} вопросов в билете {ticket_number}")
                 return questions
             return []
 
         except Exception as e:
-            print(f"Parse error for ticket {ticket_number}: {e}")
+            print(f"Ошибка парсинга билета {ticket_number}: {e}")
             return []
 
     def get_next_question(self):
@@ -162,7 +166,7 @@ class PDDParser:
 
             questions = self.parse_ticket(self.current_ticket)
             if not questions:
-                print(f"No questions in ticket {self.current_ticket}, moving to next")
+                print(f"Нет вопросов в билете {self.current_ticket}, переход к следующему")
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
@@ -179,7 +183,7 @@ class PDDParser:
                     self.save_progress()
                     return result
                 else:
-                    print(f"Question {self.current_question} failed limits, skipping")
+                    print(f"Вопрос {self.current_question} не прошёл проверку, пропускаем")
                     self.current_question += 1
                     if self.current_question > len(questions):
                         self.current_ticket += 1
@@ -187,13 +191,12 @@ class PDDParser:
                     self.save_progress()
                     continue
             else:
-                print(f"No more questions in ticket {self.current_ticket}")
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
                 continue
 
-        print("No suitable questions found")
+        print("Подходящих вопросов не найдено")
         return None
 
     def check_limits(self, question_data):
