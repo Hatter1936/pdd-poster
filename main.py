@@ -16,13 +16,8 @@ API_HASH = os.environ.get("API_HASH", "")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 
-print(f"API_ID: {'SET' if API_ID else 'NOT SET'}")
-print(f"API_HASH: {'SET' if API_HASH else 'NOT SET'}")
-print(f"CHANNEL_ID: {CHANNEL_ID if CHANNEL_ID else 'NOT SET'}")
-print(f"SESSION_STRING: {'SET' if SESSION_STRING else 'NOT SET'}")
-
 if not API_ID or not API_HASH or not CHANNEL_ID:
-    print("ERROR: Missing API credentials")
+    print("ОШИБКА: Отсутствуют данные API")
     sys.exit(1)
 
 if SESSION_STRING:
@@ -38,8 +33,7 @@ async def send_file_with_retry(entity, file_path, max_retries=2, delay=3):
             else:
                 result = await client.send_file(entity, file=file_path)
             return result
-        except Exception as e:
-            print(f"Send file attempt {attempt + 1} failed: {e}")
+        except Exception:
             if attempt == max_retries - 1:
                 raise
             await asyncio.sleep(delay)
@@ -56,10 +50,10 @@ async def save_progress_to_github():
         subprocess.run(['git', 'config', '--global', 'user.name', 'github-actions'], check=True, capture_output=True)
         subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions@github.com'], check=True, capture_output=True)
         subprocess.run(['git', 'add', 'progress.json'], check=True, capture_output=True)
-        subprocess.run(['git', 'commit', '-m', f'Progress update {datetime.now().isoformat()}'], check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', f'Обновление прогресса {datetime.now().isoformat()}'], check=True, capture_output=True)
         subprocess.run(['git', 'push'], check=True, capture_output=True)
-    except Exception as e:
-        print(f"Git save failed: {e}")
+    except Exception:
+        pass
 
 async def send_quiz():
     parser = PDDParser()
@@ -69,10 +63,10 @@ async def send_quiz():
         try:
             ticket = parser.get_next_question()
             if not ticket:
-                print("No more questions available")
+                print("Нет доступных вопросов")
                 return False
 
-            print(f"Processing ticket {ticket['ticket']}, question {ticket['number']}")
+            print(f"Обработка билета {ticket['ticket']}, вопрос {ticket['number']}")
 
             channel_entity = await client.get_entity(CHANNEL_ID)
 
@@ -85,8 +79,8 @@ async def send_quiz():
                 try:
                     await send_file_with_retry(channel_entity, image_url)
                     await asyncio.sleep(1)
-                except Exception as e:
-                    print(f"Image send failed: {e}")
+                except Exception:
+                    pass
 
             poll_answers = []
             for i, answer in enumerate(ticket['answers']):
@@ -127,17 +121,17 @@ async def send_quiz():
                     file=types.InputMediaPoll(
                         poll=poll,
                         correct_answers=[correct_bytes],
-                        solution="Explanation in comments",
+                        solution="Ознакомьтесь с объяснением в комментариях.",
                         solution_entities=[]
                     )
                 )
-                print(f"Poll sent: {poll_message.id}")
+                print(f"Опрос отправлен: {poll_message.id}")
             except FloodWaitError as e:
-                print(f"Flood wait: {e.seconds}s")
+                print(f"Ожидание флуд-контроля: {e.seconds}с")
                 await asyncio.sleep(e.seconds)
                 continue
             except RPCError as e:
-                print(f"RPC Error: {e}")
+                print(f"Ошибка RPC: {e}")
                 parser.save_progress()
                 await save_progress_to_github()
                 continue
@@ -147,11 +141,10 @@ async def send_quiz():
             try:
                 full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
                 discussion_chat_id = full_channel.full_chat.linked_chat_id
-            except Exception as e:
-                print(f"Discussion group check failed: {e}")
+            except Exception:
                 discussion_chat_id = None
 
-            explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
+            explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
 
             if not discussion_chat_id:
                 await client.send_message(
@@ -179,16 +172,15 @@ async def send_quiz():
                         formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
                         reply_to=discussion_msg.id
                     )
-                    print("Explanation sent to discussion group")
+                    print("Объяснение отправлено в комментарии под спойлером")
                 else:
                     await client.send_message(
                         channel_entity,
                         message=explanation_text,
                         reply_to=poll_message.id
                     )
-                    print("Explanation sent to channel")
-            except Exception as e:
-                print(f"Discussion send failed: {e}")
+                    print("Объяснение отправлено в канал")
+            except Exception:
                 await client.send_message(
                     channel_entity,
                     message=explanation_text,
@@ -200,10 +192,10 @@ async def send_quiz():
             return True
 
         except BroadcastPublicVotersForbiddenError:
-            print("BroadcastPublicVotersForbiddenError")
+            print("Ошибка: для каналов public_voters=False")
             return False
         except Exception as e:
-            print(f"Error in send_quiz attempt {attempt + 1}: {e}")
+            print(f"Ошибка в send_quiz попытка {attempt + 1}: {e}")
             traceback.print_exc()
             parser.save_progress()
             await save_progress_to_github()
@@ -214,29 +206,29 @@ async def send_quiz():
 
 async def main():
     try:
-        print("Starting client connection...")
+        print("Подключение к Telegram...")
         if SESSION_STRING:
             await client.start()
         else:
             await client.start(
-                phone=lambda: input("Enter phone number: "),
-                code_callback=lambda: input("Enter code: "),
-                password=lambda: input("Enter 2FA password: ")
+                phone=lambda: input("Введите номер телефона: "),
+                code_callback=lambda: input("Введите код: "),
+                password=lambda: input("Введите пароль 2FA: ")
             )
 
         me = await client.get_me()
-        print(f"Logged in as: {me.first_name}")
+        print(f"Вошли как: {me.first_name}")
 
         success = await send_quiz()
         await client.disconnect()
-        print(f"Script completed with status: {'SUCCESS' if success else 'FAILURE'}")
+        print(f"Скрипт завершён: {'УСПЕШНО' if success else 'ОШИБКА'}")
         sys.exit(0 if success else 1)
 
     except SessionPasswordNeededError:
-        password = input("Enter 2FA password: ")
+        password = input("Введите пароль 2FA: ")
         await client.sign_in(password=password)
     except Exception as e:
-        print(f"Fatal error: {e}")
+        print(f"Критическая ошибка: {e}")
         traceback.print_exc()
         sys.exit(1)
 
