@@ -2,7 +2,7 @@ name: PDD Daily Post
 
 on:
   schedule:
-    - cron: '0 2,10 * * *'
+    - cron: '0 3,11 * * *'
   workflow_dispatch:
 
 permissions:
