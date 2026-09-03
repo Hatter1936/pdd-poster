@@ -4,7 +4,6 @@ import sys
 import random
 import subprocess
 import traceback
-import json
 from datetime import datetime
 from telethon import TelegramClient, types, functions
 from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError, RPCError, FloodWaitError
@@ -14,23 +13,16 @@ from pdd_parser import PDDParser
 
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
-CHANNEL_ID_STR = os.environ.get("CHANNEL_ID", "")
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 
-# Debug output
 print(f"API_ID: {'SET' if API_ID else 'NOT SET'}")
 print(f"API_HASH: {'SET' if API_HASH else 'NOT SET'}")
-print(f"CHANNEL_ID: {'SET' if CHANNEL_ID_STR else 'NOT SET'}")
+print(f"CHANNEL_ID: {CHANNEL_ID if CHANNEL_ID else 'NOT SET'}")
 print(f"SESSION_STRING: {'SET' if SESSION_STRING else 'NOT SET'}")
 
-if not API_ID or not API_HASH or not CHANNEL_ID_STR:
+if not API_ID or not API_HASH or not CHANNEL_ID:
     print("ERROR: Missing API credentials")
-    sys.exit(1)
-
-try:
-    CHANNEL_ID = int(CHANNEL_ID_STR)
-except ValueError:
-    print(f"ERROR: Invalid CHANNEL_ID: {CHANNEL_ID_STR}")
     sys.exit(1)
 
 if SESSION_STRING:
