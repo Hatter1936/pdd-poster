@@ -25,7 +25,7 @@ if SESSION_STRING:
 else:
     client = TelegramClient('pdd_session', API_ID, API_HASH)
 
-async def send_file_with_retry(entity, file_path, max_retries=2, delay=3):
+async def send_file_with_retry(entity, file_path, max_retries=5, delay=10):
     for attempt in range(max_retries):
         try:
             if file_path.startswith('http'):
@@ -33,7 +33,8 @@ async def send_file_with_retry(entity, file_path, max_retries=2, delay=3):
             else:
                 result = await client.send_file(entity, file=file_path)
             return result
-        except Exception:
+        except Exception as e:
+            print(f"Попытка отправки картинки {attempt + 1} не удалась: {e}")
             if attempt == max_retries - 1:
                 raise
             await asyncio.sleep(delay)
@@ -70,17 +71,27 @@ async def send_quiz():
 
             channel_entity = await client.get_entity(CHANNEL_ID)
 
-            if ticket.get('image_url'):
-                image_url = ticket['image_url']
+            image_url = ticket.get('image_url')
+            if image_url:
+                print(f"Найдена картинка: {image_url}")
                 if image_url.startswith('//'):
                     image_url = 'https:' + image_url
                 elif image_url.startswith('/'):
                     image_url = 'https://drom.ru' + image_url
+                
                 try:
+                    print("Попытка отправки картинки (до 5 попыток)...")
                     await send_file_with_retry(channel_entity, image_url)
-                    await asyncio.sleep(1)
-                except Exception:
-                    pass
+                    await asyncio.sleep(2)
+                    print("Картинка успешно отправлена")
+                except Exception as e:
+                    print(f"НЕ УДАЛОСЬ ОТПРАВИТЬ КАРТИНКУ: {e}")
+                    print("Пропускаем этот вопрос, переходим к следующему")
+                    parser.save_progress()
+                    await save_progress_to_github()
+                    continue
+            else:
+                print("Картинка отсутствует в вопросе")
 
             poll_answers = []
             for i, answer in enumerate(ticket['answers']):
@@ -136,7 +147,7 @@ async def send_quiz():
                 await save_progress_to_github()
                 continue
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
             try:
                 full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
@@ -146,41 +157,47 @@ async def send_quiz():
 
             explanation_text = f"Правильный ответ: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
 
-            if not discussion_chat_id:
-                await client.send_message(
-                    channel_entity,
-                    message=explanation_text,
-                    reply_to=poll_message.id
-                )
-                parser.save_progress()
-                await save_progress_to_github()
-                return True
-
-            try:
-                discussion_entity = await client.get_entity(discussion_chat_id)
-                discussion_msg = None
-                async for msg in client.iter_messages(discussion_entity, limit=100):
-                    if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
-                        discussion_msg = msg
-                        break
-
-                if discussion_msg:
-                    text_length = len(explanation_text)
-                    await client.send_message(
-                        discussion_entity,
-                        message=explanation_text,
-                        formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
-                        reply_to=discussion_msg.id
-                    )
-                    print("Объяснение отправлено в комментарии под спойлером")
-                else:
+            if discussion_chat_id:
+                try:
+                    discussion_entity = await client.get_entity(discussion_chat_id)
+                    
+                    discussion_msg = None
+                    print("Поиск копии опроса в группе обсуждения...")
+                    for _ in range(30):
+                        async for msg in client.iter_messages(discussion_entity, limit=50):
+                            if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
+                                discussion_msg = msg
+                                break
+                        if discussion_msg:
+                            break
+                        await asyncio.sleep(1)
+                    
+                    if discussion_msg:
+                        print(f"Найдена копия опроса: {discussion_msg.id}")
+                        text_length = len(explanation_text)
+                        await client.send_message(
+                            discussion_entity,
+                            message=explanation_text,
+                            formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
+                            reply_to=discussion_msg.id
+                        )
+                        print("Объяснение отправлено в комментарии под спойлером")
+                    else:
+                        print("Копия опроса не найдена, отправляю в канал")
+                        await client.send_message(
+                            channel_entity,
+                            message=explanation_text,
+                            reply_to=poll_message.id
+                        )
+                except Exception as e:
+                    print(f"Ошибка отправки в группу: {e}")
                     await client.send_message(
                         channel_entity,
                         message=explanation_text,
                         reply_to=poll_message.id
                     )
-                    print("Объяснение отправлено в канал")
-            except Exception:
+            else:
+                print("Группа обсуждения не найдена, отправляю в канал")
                 await client.send_message(
                     channel_entity,
                     message=explanation_text,
