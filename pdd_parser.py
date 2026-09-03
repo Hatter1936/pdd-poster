@@ -2,7 +2,6 @@ import json
 import os
 import re
 import requests
-import time
 from bs4 import BeautifulSoup
 
 class PDDParser:
@@ -16,7 +15,6 @@ class PDDParser:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
-            'Connection': 'keep-alive',
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
@@ -31,9 +29,12 @@ class PDDParser:
                         data = json.loads(content)
                         self.current_ticket = data.get('current_ticket', 1)
                         self.current_question = data.get('current_question', 1)
-            except Exception:
+                        print(f"Loaded progress: ticket {self.current_ticket}, question {self.current_question}")
+            except Exception as e:
+                print(f"Load progress failed: {e}")
                 self.save_progress()
         else:
+            print("No progress file, starting from beginning")
             self.save_progress()
 
     def save_progress(self):
@@ -43,14 +44,16 @@ class PDDParser:
                     'current_ticket': self.current_ticket,
                     'current_question': self.current_question
                 }, f, indent=4, ensure_ascii=False)
-        except Exception:
-            pass
+            print(f"Saved progress: ticket {self.current_ticket}, question {self.current_question}")
+        except Exception as e:
+            print(f"Save progress failed: {e}")
 
     def parse_ticket(self, ticket_number):
         if ticket_number in self.cached_questions:
             return self.cached_questions[ticket_number]
 
         url = self.base_url.format(ticket_number)
+        print(f"Parsing ticket {ticket_number}")
 
         try:
             response = self.session.get(url, timeout=20)
@@ -61,6 +64,7 @@ class PDDParser:
             if not script_tag:
                 script_tag = soup.find('script', text=re.compile(r'initialState'))
                 if not script_tag:
+                    print(f"No script found for ticket {ticket_number}")
                     return []
 
             script_content = script_tag.string
@@ -73,6 +77,7 @@ class PDDParser:
 
             questions_data = data.get('questions', [])
             if not questions_data:
+                print(f"No questions in ticket {ticket_number}")
                 return []
 
             questions = []
@@ -135,12 +140,12 @@ class PDDParser:
 
             if questions:
                 self.cached_questions[ticket_number] = questions
+                print(f"Parsed {len(questions)} questions from ticket {ticket_number}")
                 return questions
             return []
 
-        except requests.exceptions.RequestException:
-            return []
-        except Exception:
+        except Exception as e:
+            print(f"Parse error for ticket {ticket_number}: {e}")
             return []
 
     def get_next_question(self):
@@ -157,6 +162,7 @@ class PDDParser:
 
             questions = self.parse_ticket(self.current_ticket)
             if not questions:
+                print(f"No questions in ticket {self.current_ticket}, moving to next")
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
@@ -173,6 +179,7 @@ class PDDParser:
                     self.save_progress()
                     return result
                 else:
+                    print(f"Question {self.current_question} failed limits, skipping")
                     self.current_question += 1
                     if self.current_question > len(questions):
                         self.current_ticket += 1
@@ -180,11 +187,13 @@ class PDDParser:
                     self.save_progress()
                     continue
             else:
+                print(f"No more questions in ticket {self.current_ticket}")
                 self.current_ticket += 1
                 self.current_question = 1
                 self.save_progress()
                 continue
 
+        print("No suitable questions found")
         return None
 
     def check_limits(self, question_data):
@@ -200,8 +209,3 @@ class PDDParser:
                 return False
 
         return True
-
-    def reset_progress(self):
-        self.current_ticket = 1
-        self.current_question = 1
-        self.save_progress()
