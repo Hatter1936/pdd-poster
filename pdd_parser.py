@@ -2,6 +2,7 @@ import json
 import os
 import re
 import requests
+import time
 from bs4 import BeautifulSoup
 
 class PDDParser:
@@ -12,8 +13,13 @@ class PDDParser:
         self.current_question = 1
         self.cached_questions = {}
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
+            'Connection': 'keep-alive',
         }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
         self.load_progress()
 
     def load_progress(self):
@@ -25,8 +31,6 @@ class PDDParser:
                         data = json.loads(content)
                         self.current_ticket = data.get('current_ticket', 1)
                         self.current_question = data.get('current_question', 1)
-                    else:
-                        self.save_progress()
             except Exception:
                 self.save_progress()
         else:
@@ -49,87 +53,103 @@ class PDDParser:
         url = self.base_url.format(ticket_number)
 
         try:
-            response = requests.get(url, headers=self.headers, timeout=15)
+            response = self.session.get(url, timeout=20)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(response.text, 'lxml')
 
             script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
             if not script_tag:
-                return []
-
-            try:
-                data = json.loads(script_tag.string)
-                if 'initialState' in data:
-                    data = data['initialState']
-
-                questions_data = data.get('questions', [])
-                if not questions_data:
+                script_tag = soup.find('script', text=re.compile(r'initialState'))
+                if not script_tag:
                     return []
 
-                questions = []
-                for q in questions_data:
-                    raw_answers = q.get('answers', [])
-                    if len(raw_answers) < 2:
-                        continue
+            script_content = script_tag.string
+            if not script_content:
+                return []
 
-                    answers = []
-                    correct_index = 0
+            data = json.loads(script_content)
+            if 'initialState' in data:
+                data = data['initialState']
 
-                    for i, ans in enumerate(raw_answers):
-                        text = ans.get('text', '')
+            questions_data = data.get('questions', [])
+            if not questions_data:
+                return []
+
+            questions = []
+            for q in questions_data:
+                raw_answers = q.get('answers', [])
+                if len(raw_answers) < 2:
+                    continue
+
+                answers = []
+                correct_index = 0
+
+                for i, ans in enumerate(raw_answers):
+                    text = ans.get('text', '')
+                    if text:
+                        text = re.sub(r'<[^>]+>', ' ', text)
+                        text = re.sub(r'\s+', ' ', text).strip()
                         if text:
-                            text = re.sub(r'<[^>]+>', ' ', text)
-                            text = re.sub(r'\s+', ' ', text).strip()
                             answers.append(text)
                             if ans.get('isCorrect') == True:
                                 correct_index = i
 
-                    if len(answers) < 2:
-                        continue
+                if len(answers) < 2:
+                    continue
 
-                    question_text = q.get('text', '')
-                    question_text = re.sub(r'<[^>]+>', ' ', question_text)
-                    question_text = re.sub(r'\s+', ' ', question_text).strip()
+                question_text = q.get('text', '')
+                question_text = re.sub(r'<[^>]+>', ' ', question_text)
+                question_text = re.sub(r'\s+', ' ', question_text).strip()
 
-                    explanation = q.get('commentTagged', '')
-                    if explanation:
-                        explanation = re.sub(r'<[^>]+>', ' ', explanation)
-                        explanation = re.sub(r'\s+', ' ', explanation).strip()
-                    else:
-                        explanation = "No explanation available"
+                if not question_text:
+                    continue
 
-                    image_url = None
-                    if q.get('image'):
-                        if isinstance(q['image'], dict):
-                            image_url = q['image'].get('url')
-                        else:
-                            image_url = q['image']
-
-                    questions.append({
-                        'number': q.get('num', 0),
-                        'ticket': ticket_number,
-                        'question': question_text,
-                        'answers': answers,
-                        'correct_index': correct_index,
-                        'explanation': explanation,
-                        'image_url': image_url
-                    })
-
-                if questions:
-                    self.cached_questions[ticket_number] = questions
-                    return questions
+                explanation = q.get('commentTagged', '')
+                if explanation:
+                    explanation = re.sub(r'<[^>]+>', ' ', explanation)
+                    explanation = re.sub(r'\s+', ' ', explanation).strip()
                 else:
-                    return []
+                    explanation = "No explanation available"
 
-            except Exception:
-                return []
+                image_url = None
+                if q.get('image'):
+                    if isinstance(q['image'], dict):
+                        image_url = q['image'].get('url')
+                    else:
+                        image_url = q['image']
+                    if image_url and not image_url.startswith('http'):
+                        if image_url.startswith('//'):
+                            image_url = 'https:' + image_url
+                        elif image_url.startswith('/'):
+                            image_url = 'https://drom.ru' + image_url
 
+                questions.append({
+                    'number': q.get('num', 0),
+                    'ticket': ticket_number,
+                    'question': question_text,
+                    'answers': answers,
+                    'correct_index': correct_index,
+                    'explanation': explanation,
+                    'image_url': image_url
+                })
+
+            if questions:
+                self.cached_questions[ticket_number] = questions
+                return questions
+            return []
+
+        except requests.exceptions.RequestException:
+            return []
         except Exception:
             return []
 
     def get_next_question(self):
         max_tickets = 40
-        for attempt in range(max_tickets * 3):
+        attempts = 0
+        
+        while attempts < max_tickets * 3:
+            attempts += 1
+            
             if self.current_ticket > max_tickets:
                 self.current_ticket = 1
                 self.current_question = 1
@@ -168,14 +188,13 @@ class PDDParser:
         return None
 
     def check_limits(self, question_data):
-        if len(question_data['question']) > 255:
+        if len(question_data['question']) > 300:
             return False
-        
         if len(question_data['question'].encode('utf-8')) > 255:
             return False
 
         for answer in question_data['answers']:
-            if len(answer) > 100:
+            if len(answer) > 150:
                 return False
             if len(answer.encode('utf-8')) > 100:
                 return False
@@ -186,6 +205,3 @@ class PDDParser:
         self.current_ticket = 1
         self.current_question = 1
         self.save_progress()
-
-    def close(self):
-        pass
