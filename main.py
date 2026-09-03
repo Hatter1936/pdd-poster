@@ -4,20 +4,21 @@ import sys
 import random
 import subprocess
 import traceback
+import json
+from datetime import datetime
 from telethon import TelegramClient, types, functions
 from telethon.errors import BroadcastPublicVotersForbiddenError, SessionPasswordNeededError, RPCError, FloodWaitError
 from telethon.types import MessageEntitySpoiler
 from telethon.sessions import StringSession
 from pdd_parser import PDDParser
 
-try:
-    from config import API_ID, API_HASH, CHANNEL_ID, SESSION_STRING
-except ImportError:
-    print("config.py not found")
-    sys.exit(1)
+API_ID = int(os.environ.get("API_ID", 0))
+API_HASH = os.environ.get("API_HASH", "")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", 0)) if os.environ.get("CHANNEL_ID", "").lstrip('-').isdigit() else 0
+SESSION_STRING = os.environ.get("SESSION_STRING", "")
 
-if not all([API_ID, API_HASH, CHANNEL_ID]):
-    print("Invalid config data")
+if not API_ID or not API_HASH or not CHANNEL_ID:
+    print("ERROR: Missing API credentials")
     sys.exit(1)
 
 if SESSION_STRING:
@@ -25,10 +26,13 @@ if SESSION_STRING:
 else:
     client = TelegramClient('pdd_session', API_ID, API_HASH)
 
-async def send_file_with_retry(entity, file_path, max_retries=3, delay=5):
+async def send_file_with_retry(entity, file_path, max_retries=2, delay=3):
     for attempt in range(max_retries):
         try:
-            result = await client.send_file(entity, file=file_path)
+            if file_path.startswith('http'):
+                result = await client.send_file(entity, file=file_path, force_document=False)
+            else:
+                result = await client.send_file(entity, file=file_path)
             return result
         except Exception as e:
             if attempt == max_retries - 1:
@@ -36,7 +40,7 @@ async def send_file_with_retry(entity, file_path, max_retries=3, delay=5):
             await asyncio.sleep(delay)
     return None
 
-async def save_progress_to_github(parser):
+async def save_progress_to_github():
     try:
         token = os.environ.get('GITHUB_TOKEN')
         repo = os.environ.get('GITHUB_REPOSITORY')
@@ -47,24 +51,24 @@ async def save_progress_to_github(parser):
         subprocess.run(['git', 'config', '--global', 'user.name', 'github-actions'], check=True, capture_output=True)
         subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions@github.com'], check=True, capture_output=True)
         subprocess.run(['git', 'add', 'progress.json'], check=True, capture_output=True)
-        subprocess.run(['git', 'commit', '-m', f'Progress update'], check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-m', f'Progress update {datetime.now().isoformat()}'], check=True, capture_output=True)
         subprocess.run(['git', 'push'], check=True, capture_output=True)
     except Exception:
         pass
 
 async def send_quiz():
     parser = PDDParser()
-    max_attempts = 40
+    max_attempts = 50
     
     for attempt in range(max_attempts):
         try:
             ticket = parser.get_next_question()
             if not ticket:
+                print("No more questions available")
                 return False
 
             channel_entity = await client.get_entity(CHANNEL_ID)
 
-            image_sent = False
             if ticket.get('image_url'):
                 image_url = ticket['image_url']
                 if image_url.startswith('//'):
@@ -73,17 +77,12 @@ async def send_quiz():
                     image_url = 'https://drom.ru' + image_url
                 try:
                     await send_file_with_retry(channel_entity, image_url)
-                    image_sent = True
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
                 except Exception:
                     pass
 
             poll_answers = []
-            MAX_ANSWER_LENGTH = 100
-
             for i, answer in enumerate(ticket['answers']):
-                if len(answer) > MAX_ANSWER_LENGTH:
-                    answer = answer[:MAX_ANSWER_LENGTH - 3] + '...'
                 numbered_answer = f"{i + 1}. {answer}"
                 if len(numbered_answer.encode('utf-8')) > 100:
                     numbered_answer = numbered_answer[:90] + '...'
@@ -95,13 +94,14 @@ async def send_quiz():
                     )
                 )
 
-            if len(ticket['question']) > 255:
-                ticket['question'] = ticket['question'][:252] + '...'
+            question_text = ticket['question']
+            if len(question_text.encode('utf-8')) > 255:
+                question_text = question_text[:250] + '...'
 
             poll_id = random.randint(1, 999999999)
             poll = types.Poll(
                 id=poll_id,
-                question=ticket['question'],
+                question=question_text,
                 answers=poll_answers,
                 public_voters=False,
                 multiple_choice=False,
@@ -120,73 +120,80 @@ async def send_quiz():
                     file=types.InputMediaPoll(
                         poll=poll,
                         correct_answers=[correct_bytes],
-                        solution="Explanation in comments.",
+                        solution="Explanation in comments",
                         solution_entities=[]
                     )
                 )
             except FloodWaitError as e:
                 await asyncio.sleep(e.seconds)
                 continue
-            except RPCError:
+            except RPCError as e:
+                print(f"RPC Error: {e}")
                 parser.save_progress()
-                await save_progress_to_github(parser)
+                await save_progress_to_github()
                 continue
 
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
 
-            full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
-            discussion_chat_id = full_channel.full_chat.linked_chat_id
-
-            if not discussion_chat_id:
-                explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-                await client.send_message(
-                    channel_entity,
-                    message=explanation_text,
-                    reply_to=poll_message.id
-                )
-                parser.save_progress()
-                await save_progress_to_github(parser)
-                return True
-
-            discussion_entity = await client.get_entity(discussion_chat_id)
-
-            discussion_msg = None
-            async for msg in client.iter_messages(discussion_entity, limit=100):
-                if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
-                    discussion_msg = msg
-                    break
-
-            if not discussion_msg:
-                explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-                await client.send_message(
-                    channel_entity,
-                    message=explanation_text,
-                    reply_to=poll_message.id
-                )
-                parser.save_progress()
-                await save_progress_to_github(parser)
-                return True
+            try:
+                full_channel = await client(functions.channels.GetFullChannelRequest(channel_entity))
+                discussion_chat_id = full_channel.full_chat.linked_chat_id
+            except Exception:
+                discussion_chat_id = None
 
             explanation_text = f"Correct answer: {ticket['correct_index'] + 1}\n{ticket['explanation']}"
-            text_length = len(explanation_text)
 
-            await client.send_message(
-                discussion_entity,
-                message=explanation_text,
-                formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
-                reply_to=discussion_msg.id
-            )
+            if not discussion_chat_id:
+                await client.send_message(
+                    channel_entity,
+                    message=explanation_text,
+                    reply_to=poll_message.id
+                )
+                parser.save_progress()
+                await save_progress_to_github()
+                return True
+
+            try:
+                discussion_entity = await client.get_entity(discussion_chat_id)
+                discussion_msg = None
+                async for msg in client.iter_messages(discussion_entity, limit=100):
+                    if msg.fwd_from and msg.fwd_from.channel_post == poll_message.id:
+                        discussion_msg = msg
+                        break
+
+                if discussion_msg:
+                    text_length = len(explanation_text)
+                    await client.send_message(
+                        discussion_entity,
+                        message=explanation_text,
+                        formatting_entities=[MessageEntitySpoiler(offset=0, length=text_length)],
+                        reply_to=discussion_msg.id
+                    )
+                else:
+                    await client.send_message(
+                        channel_entity,
+                        message=explanation_text,
+                        reply_to=poll_message.id
+                    )
+            except Exception:
+                await client.send_message(
+                    channel_entity,
+                    message=explanation_text,
+                    reply_to=poll_message.id
+                )
 
             parser.save_progress()
-            await save_progress_to_github(parser)
+            await save_progress_to_github()
             return True
 
         except BroadcastPublicVotersForbiddenError:
             return False
-        except Exception:
+        except Exception as e:
+            print(f"Error in send_quiz attempt {attempt + 1}: {e}")
             traceback.print_exc()
             parser.save_progress()
-            await save_progress_to_github(parser)
+            await save_progress_to_github()
+            await asyncio.sleep(5)
             continue
     
     return False
@@ -202,18 +209,17 @@ async def main():
                 password=lambda: input("Enter 2FA password: ")
             )
 
-        me = await client.get_me()
-        channel = await client.get_entity(CHANNEL_ID)
-
-        await send_quiz()
+        success = await send_quiz()
         await client.disconnect()
+        sys.exit(0 if success else 1)
 
     except SessionPasswordNeededError:
         password = input("Enter 2FA password: ")
         await client.sign_in(password=password)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Fatal error: {e}")
         traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
