@@ -21,13 +21,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Restore progress
-        uses: actions/download-artifact@v4
-        with:
-          name: progress
-          path: .
-        continue-on-error: true
-
       - name: Ensure progress file exists
         run: |
           if [ ! -f progress.json ]; then
@@ -39,13 +32,6 @@ jobs:
         run: |
           pip install --no-cache-dir --upgrade pip
           pip install --no-cache-dir telethon==1.28.5 requests beautifulsoup4 lxml
-
-      - name: List environment variables (debug)
-        run: |
-          echo "API_ID is set: ${{ secrets.API_ID != '' }}"
-          echo "API_HASH is set: ${{ secrets.API_HASH != '' }}"
-          echo "CHANNEL_ID is set: ${{ secrets.CHANNEL_ID != '' }}"
-          echo "SESSION_STRING is set: ${{ secrets.SESSION_STRING != '' }}"
 
       - name: Run script
         env:
@@ -65,6 +51,7 @@ jobs:
           name: progress
           path: progress.json
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Commit progress
         if: always()
