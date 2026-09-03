@@ -33,11 +33,19 @@ jobs:
           if [ ! -f progress.json ]; then
             echo '{"current_ticket": 1, "current_question": 1}' > progress.json
           fi
+          cat progress.json
 
       - name: Install dependencies
         run: |
           pip install --no-cache-dir --upgrade pip
           pip install --no-cache-dir telethon==1.28.5 requests beautifulsoup4 lxml
+
+      - name: List environment variables (debug)
+        run: |
+          echo "API_ID is set: ${{ secrets.API_ID != '' }}"
+          echo "API_HASH is set: ${{ secrets.API_HASH != '' }}"
+          echo "CHANNEL_ID is set: ${{ secrets.CHANNEL_ID != '' }}"
+          echo "SESSION_STRING is set: ${{ secrets.SESSION_STRING != '' }}"
 
       - name: Run script
         env:
@@ -48,7 +56,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          python main.py || echo "Script completed with exit code $?"
+          python main.py
 
       - name: Save progress
         if: always()
