@@ -2,8 +2,8 @@ name: PDD Daily Post
 
 on:
   schedule:
-    - cron: '0 3,14 * * *' # 03:00 и 14:00 UTC (06:00 и 17:00 по МСК)
-  workflow_dispatch:       # Разрешает ручной запуск
+    - cron: '0 3,14 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --no-cache-dir --upgrade pip
-          pip install --no-cache-dir telethon==1.28.5 requests beautifulsoup4 lxml
+          pip install --no-cache-dir telethon==1.28.5 requests beautifulsoup4 lxml cloudscraper
 
       - name: Run script
         env:
