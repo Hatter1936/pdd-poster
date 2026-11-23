@@ -251,8 +251,4 @@ async def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())t_exc()
-        sys.exit(1)
-
-if __name__ == "__main__":
     asyncio.run(main())
