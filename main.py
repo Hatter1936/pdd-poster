@@ -63,11 +63,12 @@ async def send_quiz():
     for attempt in range(max_attempts):
         try:
             ticket = parser.get_next_question()
+            
             if not ticket:
-                print("Нет доступных вопросов")
+                print("❌ КРИТИЧЕСКАЯ ОШИБКА: Парсер вернул пустой результат. Возможно, сайт заблокировал запрос или структура страницы изменилась.")
                 return False
 
-            print(f"Обработка билета {ticket['ticket']}, вопрос {ticket['number']}")
+            print(f"✅ Обработка билета {ticket['ticket']}, вопрос {ticket['number']}")
 
             channel_entity = await client.get_entity(CHANNEL_ID)
 
@@ -247,6 +248,10 @@ async def main():
     except Exception as e:
         print(f"Критическая ошибка: {e}")
         traceback.print_exc()
+        sys.exit(1)
+
+if __name__ == "__main__":
+    asyncio.run(main())t_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
