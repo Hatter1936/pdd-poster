@@ -1,7 +1,7 @@
 import json
 import os
 import re
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 
 class PDDParser:
@@ -11,13 +11,15 @@ class PDDParser:
         self.current_ticket = 1
         self.current_question = 1
         self.cached_questions = {}
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
-        }
-        self.session = requests.Session()
-        self.session.headers.update(self.headers)
+        
+        self.session = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
+        
         self.load_progress()
 
     def load_progress(self):
@@ -63,9 +65,15 @@ class PDDParser:
             script_tag = soup.find('script', {'data-drom-module': 'pdd-exam'})
             if not script_tag:
                 script_tag = soup.find('script', text=re.compile(r'initialState'))
-                if not script_tag:
-                    print(f"Скрипт не найден в билете {ticket_number}")
-                    return []
+                
+            if not script_tag:
+                print(f"⚠️ ОШИБКА: Скрипт не найден в билете {ticket_number}")
+                print(f"DEBUG: Статус ответа: {response.status_code}")
+                if "cloudflare" in response.text.lower() or "captcha" in response.text.lower() or "access denied" in response.text.lower():
+                    print("DEBUG: Обнаружена блокировка Cloudflare или капча!")
+                else:
+                    print(f"DEBUG: Фрагмент ответа (первые 300 символов): {response.text[:300]}")
+                return []
 
             script_content = script_tag.string
             if not script_content:
